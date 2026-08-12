@@ -1,6 +1,6 @@
 ---
 name: live-chat
-description: Stream, broadcast, visualize, or replay real multi-agent conversations in a local browser with visible participants, typing, goals, rounds, and completion state. Use for multi-agent live chat, browser-visible debates, reviews, diagnosis, negotiation, role-play, 群聊直播, 多智能体辩论, 会诊, 谈判, 对话回放, or whenever the user wants to watch several AI agents talk. Supports capability-aware fallback when subagents or built-in browser tools are unavailable.
+description: Stream, broadcast, visualize, diagnose, export, or replay real multi-agent conversations in a local browser with persistent sessions, visible participants, typing, goals, rounds, and completion state. Use for multi-agent live chat, browser-visible debates, reviews, diagnosis, negotiation, role-play, conversation history, 群聊直播, 多智能体辩论, 会诊, 谈判, 对话回放, or whenever the user wants to watch several AI agents talk. Supports capability-aware fallback when subagents or built-in browser tools are unavailable.
 ---
 
 # live-chat
@@ -33,6 +33,8 @@ Tell the user which roles will participate, that the default is at most three ro
 
 ## Start the local display
 
+For a new installation or a reported failure, run `python <skill>/scripts/live_chat.py --json doctor` first and act on failed checks. Warnings do not block startup.
+
 Run:
 
 ```text
@@ -40,6 +42,14 @@ python <skill>/scripts/live_chat.py --json start
 ```
 
 Parse the returned `url`. If a built-in browser tool is available, open that URL once for the session without setting panel size, viewport, zoom, or global layout. Otherwise return a clickable URL. Never invoke the system default browser.
+
+Create a new persistent conversation when the request is unrelated to the active one:
+
+```text
+python <skill>/scripts/live_chat.py --json sessions create --title "Topic"
+```
+
+Keep the returned `session_id`. Existing commands write to the active conversation. Never reset or seed another conversation to start a new task.
 
 Reset the scene, register every role in display order, then set a complete session document:
 
@@ -85,6 +95,14 @@ On pause, stop new dispatches, preserve received replies, clear all typing, reco
 On continue, restore the persisted session and dispatch only unfinished roles in the current round. Recreate unavailable agents with the same responsibility, behavior settings, requested model, resolved reasoning effort, and a concise conversation summary. Re-check host availability; never silently substitute a now-unavailable model.
 
 On stop, clear typing and set `stopped` with a reason. Keep the page, messages, objective, and roster available.
+
+## Preserve and replay history
+
+Use `sessions list --archived` before selecting or archiving history. Do not archive the active conversation; select or create another one first. Never delete runtime files to remove a conversation.
+
+Use `export <session-id> --format snapshot --file <path>` for a compact handoff. Use `--format events` when ordering, typing, or event provenance matters. Replay exports with `replay --file <path> --speed 0`; replay always creates a new conversation and never overwrites the source.
+
+Use `events emit --stdin` only for a host integration that can construct the normalized event envelope. Read `references/protocol.md` first. Keep real agent dispatch in the host; the adapter layer records capabilities and provenance but does not call a vendor SDK.
 
 For an empty reply, request output once; on a second empty result, close typing and show a system explanation. Never invent missing dialogue. Retry a failed display push once and report any reply that could not be displayed.
 

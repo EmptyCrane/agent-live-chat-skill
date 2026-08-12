@@ -17,6 +17,8 @@
 - 服务只监听`127.0.0.1`，浏览器页面保持只读。
 - 运行时仅依赖Python标准库，不需要API Key。
 - 状态与Skill代码分离，可恢复、迁移和回放历史对话。
+- 多会话使用稳定ID独立保存，可只读浏览、归档、导出和非破坏回放。
+- 提供doctor、确定性Demo、标准事件协议和三宿主薄适配。
 - 自适应单栏/双栏布局，提供自动、浅色和深色主题。
 
 ## 工作方式
@@ -46,6 +48,8 @@ python tools/install.py --host codex --scope user
 ```bash
 python tools/install.py --host codex --scope user --apply
 ```
+
+`codex`用户级目标为`$CODEX_HOME/skills`，未设置时为`~/.codex/skills`。如需`~/.agents/skills`，显式使用`--host agents`。安装器不会移动或删除另一位置的同名Skill，`doctor`会报告潜在冲突。
 
 Claude Code或GitHub Copilot分别使用`--host claude`或`--host copilot`。`--host auto`只有在恰好识别到一个现有宿主Skill根目录时才会继续；没有匹配或存在多个匹配时会终止并要求显式指定。
 
@@ -80,10 +84,23 @@ CLI示例：
 ```bash
 python skill/live-chat/scripts/live_chat.py --version
 python skill/live-chat/scripts/live_chat.py --json start
+python skill/live-chat/scripts/live_chat.py --json doctor --host codex
+python skill/live-chat/scripts/live_chat.py --json demo --lang zh-CN --port 0
+python skill/live-chat/scripts/live_chat.py sessions create --title "架构评审"
+python skill/live-chat/scripts/live_chat.py sessions list --archived
 python skill/live-chat/scripts/live_chat.py status
 python skill/live-chat/scripts/live_chat.py participants set Architect Critic Operator
 python skill/live-chat/scripts/live_chat.py msg Architect "Initial proposal"
 python skill/live-chat/scripts/live_chat.py stop
+```
+
+`doctor`全部通过时退出码为`0`，仅有警告时为`2`，存在失败项时为`1`。
+
+导出和回放：
+
+```bash
+python skill/live-chat/scripts/live_chat.py export SESSION_ID --format events --file history.json
+python skill/live-chat/scripts/live_chat.py replay --file history.json --speed 0
 ```
 
 默认运行数据路径：
@@ -98,7 +115,7 @@ python skill/live-chat/scripts/live_chat.py stop
 
 - 服务只绑定回环地址，不应通过代理暴露到公网。
 - 页面不发送写请求，所有状态修改来自本地CLI/API。
-- 聊天内容仅保存在本机`state.json`；日志默认不记录完整正文。
+- 聊天内容仅保存在本机会话目录、快照和事件日志中；服务日志默认不记录完整正文。
 - 安装器拒绝符号链接目标，不提供递归卸载。
 - 第三方Skill包含可执行说明与脚本，安装前应审查源码。
 
@@ -108,7 +125,7 @@ python skill/live-chat/scripts/live_chat.py stop
 
 ```bash
 python -m unittest discover -s tests -p "test_*.py" -v
-python tools/package_release.py --version 0.1.0-beta.4
+python tools/package_release.py --version 0.1.0-beta.5
 ```
 
 视觉测试需要Node.js和锁定的Playwright开发依赖：
@@ -122,7 +139,7 @@ npx playwright install chromium
 
 ## 已知限制
 
-- `v0.1.0-beta.4`保持HTTP协议和状态Schema版本1不变，新增真实中英文本地化、配套双语截图、隐私安全发布审计与无歧义宿主安装。
+- `v0.1.0-beta.5`保持Beta 4 HTTP协议和状态Schema版本1兼容，新增事件协议版本1、多会话、诊断、Demo、导出回放和宿主适配。
 
 - Claude Code与Copilot目前完成格式兼容检查，但尚未完成对应宿主实测。
 - 自动打开浏览器和强制中断运行中子智能体依赖宿主能力。

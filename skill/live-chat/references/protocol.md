@@ -4,6 +4,8 @@
 
 ## 状态模型
 
+Beta 5保持原HTTP `protocol_version=1`和单会话快照Schema 1，新增独立的`event_protocol_version=1`。旧客户端继续读写活动会话；新客户端必须从health的`features`判断多会话能力，不得仅根据应用版本猜测。
+
 - `instance_id`：单次服务进程标识。变化时客户端完整重拉。
 - `app_version`：应用发行版本；增量加入health、instance和CLI status输出。
 - `epoch`：reset 或 seed 时递增。消息唯一键为 `epoch:id`。
@@ -12,12 +14,18 @@
 - `session`：目标、交付物、完成条件、模型策略、角色运行配置、轮次、阶段和结束状态。
 - `participants`：有序参与者名册，包含尚未发言的成员；消息发送者和 typing 成员可自动追加。
 - `typing`：正在输入的成员映射。
+- `session_id`：稳定的32位小写UUID十六进制会话标识。
+
+状态目录新增`sessions.json`、`sessions/<session-id>/state.json`和`events.jsonl`。`sessions.json`保存活动会话和元数据。旧根`state.json`首次被导入为一个会话后保持不变；不得用旧文件覆盖新目录。
 
 ## 读取端点
 
 - `GET /`：返回聊天页面。
 - `GET /api/health`：返回服务标识、应用版本、协议版本、实例、PID、epoch 和 revision。
 - `GET /api/state?since=N`：返回从消息下标 N 开始的增量消息，以及完整 scene、session、participants 和 typing。
+- `GET /api/state?since=N&session=<id>`：读取指定活动或归档会话，不改变CLI写入目标。
+- `GET /api/sessions?include_archived=1`：列出会话目录。
+- `GET /api/events?session=<id>&after=N`：按会话序号读取事件。
 
 ## 写入端点
 
@@ -28,6 +36,10 @@
 - `POST /api/scene`：`{scene:{title,subtitle}}`。
 - `POST /api/reset`：`{scene:null|{title,subtitle}}`。
 - `POST /api/seed`：`{scene?,session?,participants?,messages:[{sender,text,sys?,ts?}]}`。
+- `POST /api/sessions`：`{title?,subtitle?,source?}`；创建并选择新会话。
+- `POST /api/sessions/select|archive|restore`：`{session_id,source?}`。
+- `POST /api/events`：提交一个标准事件，可用`session_id`指定目标，缺省为活动会话。
+- `POST /api/events/batch`：`{session_id?,events:[...]}`；原子验证并提交1–5000个事件。
 - `POST /api/shutdown`：停止匹配的本地服务。
 
 所有 POST 使用 UTF-8 JSON 和 `Content-Type: application/json`。错误格式为：
@@ -49,9 +61,43 @@ python live_chat.py participants clear
 python live_chat.py session set --stdin
 python live_chat.py session set --file session.json
 python live_chat.py session clear
+python live_chat.py doctor --host codex
+python live_chat.py demo --lang zh-CN --port 0
+python live_chat.py sessions list --archived
+python live_chat.py sessions create --title "架构评审"
+python live_chat.py sessions select <session-id>
+python live_chat.py export <session-id> --format events --file history.json
+python live_chat.py replay --file history.json --speed 0
+python live_chat.py events emit --stdin
+python live_chat.py adapter show codex
 ```
 
 消息正文来源三选一：位置参数、`--stdin`、`--file`。长文本或多行文本优先使用 stdin。
+
+## 事件信封
+
+客户端提交`type`、`source`和`payload`；可提供用于幂等重试的`event_id`和原始`occurred_at`。服务分配会话内单调`seq`并返回完整信封：
+
+```json
+{
+  "event_version": 1,
+  "event_id": "0d22f68a8a3046e6aa0c7e66d86ac9f9",
+  "session_id": "f403426c5aa7465cb849c36eb042e9d8",
+  "seq": 12,
+  "type": "message.created",
+  "occurred_at": "2026-08-12T12:00:00+00:00",
+  "source": {"host": "codex", "actor": "Architect", "run_id": "opaque-run-id"},
+  "payload": {"sender": "Architect", "text": "先明确状态边界。"}
+}
+```
+
+事件类型为`conversation.created|selected|archived|restored|reset|seeded`、`scene.updated`、`plan.updated`、`participants.replaced`、`message.created`、`typing.changed|cleared`。`source.host`为`codex|agents|claude|copilot|generic|manual|legacy`。相同`event_id`和相同内容为幂等成功；内容不同返回`event_conflict`。
+
+旧POST端点在服务内部转换为事件。归档会话只读，活动会话不能归档，不提供永久删除。
+
+## 导出格式
+
+导出顶层为`{"format":"live-chat-export/v1","kind":"snapshot|events",...}`。snapshot适合紧凑交接；events保留顺序和来源。replay总是创建新会话、重新分配会话ID与seq，并在`source.replay_of`记录原事件ID。
 
 seed JSON 示例：
 

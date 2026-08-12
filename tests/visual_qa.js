@@ -146,6 +146,41 @@ async function main() {
 
   try {
     const roster = await seedFixture('zh-CN');
+    const initialCatalog = await fetch(url + '/api/sessions').then(response => response.json());
+    const liveSessionId = initialCatalog.active_session_id;
+    const archivedCreated = await post('/api/sessions', {
+      title: 'Archived visual history',
+      subtitle: 'Read-only selector check',
+    });
+    const archivedSessionId = archivedCreated.session.session_id;
+    await post('/api/msg', { sender: 'History agent', text: 'Archived message remains readable.' });
+    await post('/api/sessions/select', { session_id: liveSessionId });
+    await post('/api/sessions/archive', { session_id: archivedSessionId });
+
+    const historyContext = await browser.newContext({ viewport: { width: 1200, height: 800 } });
+    const historyPage = await historyContext.newPage();
+    const pagePosts = [];
+    historyPage.on('request', request => {
+      if (request.method() !== 'GET') pagePosts.push(request.method() + ' ' + request.url());
+    });
+    await historyPage.goto(url + '?lang=en', { waitUntil: 'networkidle' });
+    await historyPage.waitForFunction(() => document.querySelectorAll('#rail-session-select option').length >= 2);
+    await historyPage.locator('#rail-session-select').selectOption(archivedSessionId);
+    await historyPage.waitForFunction(
+      () => [...document.querySelectorAll('.message-text')].some(item => item.textContent.includes('Archived message')),
+    );
+    const historyCheck = await historyPage.evaluate(() => ({
+      selected: document.getElementById('rail-session-select').value,
+      urlSession: new URLSearchParams(window.location.search).get('session'),
+      archivedLabel: document.getElementById('rail-session-select').selectedOptions[0].textContent,
+    }));
+    if (historyCheck.selected !== archivedSessionId || historyCheck.urlSession !== archivedSessionId) {
+      throw new Error('history selector did not switch the read-only view');
+    }
+    if (!historyCheck.archivedLabel.includes('archived') || pagePosts.length) {
+      throw new Error('history selector is not read-only: ' + JSON.stringify({ historyCheck, pagePosts }));
+    }
+    await historyContext.close();
 
     for (const item of cases) {
       const context = await browser.newContext({
@@ -319,7 +354,7 @@ async function main() {
       await captureDocumentation('en', 'live-chat-en.png'),
       await captureDocumentation('zh-CN', 'live-chat-zh-CN.png'),
     ];
-    results.push({ stateChecks, sessionChecks, rememberedTheme, storageFallback, documentation });
+    results.push({ historyCheck, stateChecks, sessionChecks, rememberedTheme, storageFallback, documentation });
   } finally {
     await browser.close();
   }

@@ -1,4 +1,4 @@
 interface:
   display_name: "Live Chat"
-  short_description: "Stream real multi-agent conversations in a local browser"
-  default_prompt: "Use $live-chat to run a goal-driven conversation with real subagents, configured roles, tones, model preferences, rounds, and completion state."
+  short_description: "Stream and replay persistent multi-agent conversations"
+  default_prompt: "Use $live-chat to stream a goal-driven conversation with real subagents, preserve it as a session, and export or replay the history."

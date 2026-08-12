@@ -4,8 +4,10 @@ The core Skill follows the open Agent Skills directory format. Host features are
 
 ## OpenAI Codex
 
-- Personal Skill path: `~/.agents/skills/live-chat`.
+- The repository installer's isolated Codex target is `$CODEX_HOME/skills/live-chat`, falling back to `~/.codex/skills/live-chat`.
+- Use the explicit `agents` installer target for the open shared path `~/.agents/skills/live-chat`.
 - Repository Skill path: `.agents/skills/live-chat`.
+- Run `doctor --host codex` after installation. If both Codex and `.agents` copies are discovered, disable one exact `SKILL.md` path in Codex configuration rather than deleting another host's copy.
 - Use real subagent tools when present.
 - Treat the callable subagent tool schema as authoritative for model and reasoning overrides. Pass them only when accepted by the current tool. A model listed in the OpenAI API catalog is not automatically available in the current Codex surface.
 - If `codex_app__open_in_codex` is available, open the returned localhost URL once with right-side placement and no width, height, zoom, or viewport arguments.
@@ -35,3 +37,7 @@ The core Skill follows the open Agent Skills directory format. Host features are
 - With no subagents, allow service startup, history replay, and manual CLI pushes only. Never label single-agent role simulation as a real multi-agent session.
 - With no interruption, pause by stopping new dispatch and ignoring late results; tell the user in-flight work continues outside the Skill's control.
 - With no browser tool, provide the localhost URL without opening a system browser.
+
+## Adapter contract
+
+Run `adapter show <host>` to obtain the canonical host name, install roots, and capability names. Treat every listed capability as something to probe, not as guaranteed availability. Include the canonical host in event `source.host`; keep host run identifiers opaque and never include credentials.

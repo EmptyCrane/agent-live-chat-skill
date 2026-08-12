@@ -124,6 +124,29 @@
     }
     .theme-toggle:hover { background: rgba(255,255,255,.20); }
 
+    .history-picker { margin-top: 9px; }
+    .history-picker label {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .history-select {
+      width: 100%;
+      min-height: 34px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      padding: 5px 28px 5px 8px;
+      color: var(--text);
+      background: var(--surface-raised);
+      font: inherit;
+      font-size: 12px;
+    }
+    .history-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
     .member-trigger {
       flex: none;
       min-width: 56px;
@@ -381,7 +404,17 @@
       }
       .chat-pane { overflow: hidden; border-radius: 20px 0 0 20px; }
       .participant-rail { min-height: 0; display: flex; flex-direction: column; border-radius: 0 20px 20px 0; overflow: hidden; }
-      .participant-rail .session-detail { max-height: 180px; overflow-y: auto; }
+      .participant-rail .session-detail { max-height: 130px; overflow-y: auto; }
+      .participant-rail .history-picker { margin-top: 5px; }
+      .participant-rail .history-picker label {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+      }
+      .participant-rail .history-select { min-height: 28px; padding-top: 3px; padding-bottom: 3px; font-size: 11px; }
       .participant-rail .member-list { flex: 1; padding: 6px 8px; }
       .participant-rail .member-item { min-height: 36px; gap: 8px; padding: 2px 7px; }
       .participant-rail .member-avatar { width: 30px; height: 30px; font-size: 14px; }
@@ -487,6 +520,10 @@
         <div id="rail-title" class="rail-title">Live group chat</div>
         <div id="rail-subtitle" class="rail-subtitle">Waiting for the host…</div>
         <div id="rail-count" class="rail-count">0 participants</div>
+        <div id="rail-history" class="history-picker" hidden>
+          <label for="rail-session-select">Conversation history</label>
+          <select id="rail-session-select" class="history-select"></select>
+        </div>
       </div>
       <div id="rail-session" class="session-detail" hidden></div>
       <div id="desktop-member-list" class="member-list" data-empty-text="Participants will appear here"></div>
@@ -499,6 +536,10 @@
       <div class="sheet-header">
         <div id="sheet-title" class="sheet-title">Participants</div>
         <button id="sheet-close" class="sheet-close" type="button" aria-label="Close participant list">×</button>
+      </div>
+      <div id="sheet-history" class="history-picker" hidden>
+        <label for="sheet-session-select">Conversation history</label>
+        <select id="sheet-session-select" class="history-select"></select>
       </div>
       <div id="sheet-session" class="session-detail" hidden></div>
       <div id="sheet-member-list" class="member-list" data-empty-text="Participants will appear here"></div>
@@ -530,6 +571,7 @@
         viewMembers: total => 'View participants, ' + total + ' total',
         participants: total => total + (total === 1 ? ' participant' : ' participants'),
         membersTitle: 'Participants', closeMembers: 'Close participant list',
+        historyTitle: 'Conversation history', activeSession: 'active', archivedSession: 'archived',
         emptyChat: '💬  Waiting for the host', emptyMembers: 'Participants will appear here',
         sessionAria: 'Session progress', titleSuffix: 'live', sessionRunning: 'Session in progress',
         themes: { auto: 'automatic', light: 'light', dark: 'dark' },
@@ -562,6 +604,7 @@
         connecting: '连接中…', connected: '已连接', reconnecting: '重连中',
         viewMembers: total => '查看群聊成员，共 ' + total + ' 位', participants: total => total + ' 位参与者',
         membersTitle: '群聊成员', closeMembers: '关闭成员列表',
+        historyTitle: '会话历史', activeSession: '当前', archivedSession: '已归档',
         emptyChat: '💬  等待主持人开场', emptyMembers: '参与者加入后会显示在这里',
         sessionAria: '会话进度', titleSuffix: '直播', sessionRunning: '会话进行中',
         themes: { auto: '自动', light: '浅色', dark: '深色' },
@@ -609,6 +652,10 @@
     const railSession = document.getElementById('rail-session');
     const sheetSession = document.getElementById('sheet-session');
     const themeToggle = document.getElementById('theme-toggle');
+    const railHistory = document.getElementById('rail-history');
+    const sheetHistory = document.getElementById('sheet-history');
+    const railSessionSelect = document.getElementById('rail-session-select');
+    const sheetSessionSelect = document.getElementById('sheet-session-select');
     const narrowLayout = window.matchMedia('(max-width: 819px)');
 
     const THEME_KEY = 'live-chat-theme';
@@ -637,6 +684,9 @@
     let pollTimer = null;
     let retryDelay = 500;
     let connectedState = null;
+    let sessionPollTimer = null;
+    let selectedSession = new URLSearchParams(window.location.search).get('session') || null;
+    let sessionCatalogSignature = '';
 
     const SESSION_STATUS = T.sessionStatus;
     const SESSION_PHASE = T.sessionPhase;
@@ -653,6 +703,8 @@
       document.getElementById('status-text').textContent = T.connecting;
       document.getElementById('sheet-title').textContent = T.membersTitle;
       sheetClose.setAttribute('aria-label', T.closeMembers);
+      document.querySelector('#rail-history label').textContent = T.historyTitle;
+      document.querySelector('#sheet-history label').textContent = T.historyTitle;
       listEl.dataset.emptyText = T.emptyChat;
       desktopMemberList.dataset.emptyText = T.emptyMembers;
       sheetMemberList.dataset.emptyText = T.emptyMembers;
@@ -1072,6 +1124,59 @@
       renderSession(null);
     }
 
+    function chooseSession(sessionId) {
+      if (!sessionId || sessionId === selectedSession) return;
+      selectedSession = sessionId;
+      const location = new URL(window.location.href);
+      location.searchParams.set('session', sessionId);
+      history.replaceState(null, '', location);
+      instanceId = null;
+      epoch = null;
+      revision = 0;
+      clearDerived();
+      schedulePoll(0);
+    }
+
+    function renderSessionCatalog(value) {
+      if (!value || !Array.isArray(value.sessions)) return;
+      if (!selectedSession) selectedSession = value.active_session_id || null;
+      if (selectedSession && !value.sessions.some(item => item.session_id === selectedSession)) {
+        selectedSession = value.active_session_id || null;
+      }
+      const signature = JSON.stringify(value) + '\u0000' + selectedSession;
+      if (signature === sessionCatalogSignature) return;
+      sessionCatalogSignature = signature;
+      for (const select of [railSessionSelect, sheetSessionSelect]) {
+        const fragment = document.createDocumentFragment();
+        for (const item of value.sessions) {
+          const option = document.createElement('option');
+          const flags = [];
+          if (item.session_id === value.active_session_id) flags.push(T.activeSession);
+          if (item.archived) flags.push(T.archivedSession);
+          option.value = item.session_id;
+          option.textContent = item.title + (flags.length ? ' · ' + flags.join(', ') : '');
+          option.selected = item.session_id === selectedSession;
+          fragment.appendChild(option);
+        }
+        select.replaceChildren(fragment);
+      }
+      railHistory.hidden = false;
+      sheetHistory.hidden = false;
+    }
+
+    async function pollSessions() {
+      try {
+        const response = await fetch('/api/sessions?include_archived=1', { cache: 'no-store' });
+        if (response.status === 404) return;
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        renderSessionCatalog(await response.json());
+      } catch (error) {
+        /* Session history is optional when connected to a Beta 4 service. */
+      } finally {
+        sessionPollTimer = setTimeout(pollSessions, 2000);
+      }
+    }
+
     function openMemberSheet() {
       if (!narrowLayout.matches) return;
       sheetBackdrop.hidden = false;
@@ -1097,7 +1202,8 @@
       const timeout = setTimeout(() => controller.abort(), 4000);
       let nextDelay = 500;
       try {
-        const response = await fetch('/api/state?since=' + count, { cache: 'no-store', signal: controller.signal });
+        const sessionQuery = selectedSession ? '&session=' + encodeURIComponent(selectedSession) : '';
+        const response = await fetch('/api/state?since=' + count + sessionQuery, { cache: 'no-store', signal: controller.signal });
         if (!response.ok) throw new Error('HTTP ' + response.status);
         const data = await response.json();
         setStatus(true);
@@ -1143,6 +1249,8 @@
       stick = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < 64;
     });
     memberTrigger.addEventListener('click', openMemberSheet);
+    railSessionSelect.addEventListener('change', event => chooseSession(event.target.value));
+    sheetSessionSelect.addEventListener('change', event => chooseSession(event.target.value));
     themeToggle.addEventListener('click', () => {
       const next = THEME_MODES[(THEME_MODES.indexOf(themeMode) + 1) % THEME_MODES.length];
       themeMode = applyTheme(next, true);
@@ -1159,6 +1267,7 @@
     });
 
     renderMembers(true);
+    pollSessions();
     schedulePoll(0);
   </script>
 </body>

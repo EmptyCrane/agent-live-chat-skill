@@ -17,6 +17,8 @@ An open [Agent Skills](https://agentskills.io/) project that streams real multi-
 - Runs only on `127.0.0.1` and keeps the web page read-only.
 - Uses only the Python standard library at runtime.
 - Persists state outside the installed Skill and can replay imported conversations.
+- Keeps stable-ID conversations independently browsable, archivable, exportable, and replayable.
+- Includes doctor, a deterministic demo, normalized events, and thin host adapters.
 - Provides automatic, light, and dark themes without third-party frontend assets.
 
 ## Architecture
@@ -64,6 +66,8 @@ Apply after reviewing the destination:
 python tools/install.py --host codex --scope user --apply
 ```
 
+The `codex` user target resolves to `$CODEX_HOME/skills`, falling back to `~/.codex/skills`. Use `--host agents` explicitly for `~/.agents/skills`. The installer does not move or delete the other copy; `doctor` reports possible duplicate-name discovery.
+
 Use `--host claude` or `--host copilot` for those hosts. `--host auto` succeeds only when exactly one existing host Skill root can be identified; otherwise it stops and asks for an explicit host.
 
 Install for every supported host:
@@ -97,10 +101,23 @@ The service CLI can also be used directly:
 ```bash
 python skill/live-chat/scripts/live_chat.py --version
 python skill/live-chat/scripts/live_chat.py --json start
+python skill/live-chat/scripts/live_chat.py --json doctor --host codex
+python skill/live-chat/scripts/live_chat.py --json demo --lang en --port 0
+python skill/live-chat/scripts/live_chat.py sessions create --title "Architecture review"
+python skill/live-chat/scripts/live_chat.py sessions list --archived
 python skill/live-chat/scripts/live_chat.py status
 python skill/live-chat/scripts/live_chat.py participants set Architect Critic Operator
 python skill/live-chat/scripts/live_chat.py msg Architect "Initial proposal"
 python skill/live-chat/scripts/live_chat.py stop
+```
+
+`doctor` exits with `0` when every check passes, `2` for warnings only, and `1` when any check fails.
+
+Export and replay:
+
+```bash
+python skill/live-chat/scripts/live_chat.py export SESSION_ID --format events --file history.json
+python skill/live-chat/scripts/live_chat.py replay --file history.json --speed 0
 ```
 
 Use `LIVE_CHAT_STATE_DIR` to override runtime storage. Otherwise state is stored in `%LOCALAPPDATA%\agent-live-chat` on Windows, `~/Library/Application Support/agent-live-chat` on macOS, or `$XDG_STATE_HOME/agent-live-chat` on Linux.
@@ -109,7 +126,7 @@ Use `LIVE_CHAT_STATE_DIR` to override runtime storage. Otherwise state is stored
 
 - The HTTP server binds to loopback only; do not proxy it to a public interface.
 - The UI sends no write requests. Changes come from the local CLI/API.
-- Chat content stays in local `state.json`; logs omit full message bodies by default.
+- Chat content stays in the local session catalog, snapshots, and event logs; service logs omit full message bodies by default.
 - The installer rejects symbolic-link targets and never provides recursive uninstall.
 - A downloaded Skill contains executable instructions and scripts. Review it before installation.
 
@@ -119,7 +136,7 @@ See [SECURITY.md](SECURITY.md) for reporting and threat boundaries.
 
 ```bash
 python -m unittest discover -s tests -p "test_*.py" -v
-python tools/package_release.py --version 0.1.0-beta.4
+python tools/package_release.py --version 0.1.0-beta.5
 ```
 
 Visual checks require Node.js and the pinned Playwright development dependency:
@@ -133,7 +150,7 @@ Runtime code remains dependency-free. Development dependencies are not included 
 
 ## Release status and limits
 
-- `v0.1.0-beta.4` preserves HTTP protocol/state schema version 1 and adds bilingual UI localization, paired documentation screenshots, privacy-safe publication auditing, and unambiguous host installation.
+- `v0.1.0-beta.5` remains compatible with the Beta 4 HTTP protocol and state schema while adding event protocol version 1, persistent conversations, doctor/demo, export/replay, and host adapters.
 - Claude Code and Copilot compatibility is format-checked but not yet host-smoke-tested.
 - Browser auto-opening and forceful interruption depend on host capabilities.
 - GitHub-hosted macOS runners currently cannot exercise the detached localhost lifecycle because of [runner-images #14409](https://github.com/actions/runner-images/issues/14409); macOS still runs the remaining unit, HTTP, installer, and packaging coverage, while Ubuntu validates the POSIX detached lifecycle.

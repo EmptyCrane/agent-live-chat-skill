@@ -12,6 +12,16 @@ python <skill>/scripts/live_chat.py status
 
 它会显示实际 URL、PID、消息数、参与者名册、typing成员、session状态、轮次、状态文件和日志位置。
 
+先运行 `python <skill>/scripts/live_chat.py doctor`。退出码 `0` 表示全部通过，`2` 表示仅有警告，`1` 表示至少一项失败。`FAIL`必须解决；`WARN`表示服务尚未启动、尚未产生状态或发现可能的重复安装，不一定阻止使用。
+
+## 找不到历史会话
+
+运行 `sessions list --archived`。浏览器历史选择器只读，不会改变CLI写入目标；需要继续某个会话时使用 `sessions select <session-id>`。归档会话必须先restore才能选择。
+
+## 连接到旧服务
+
+Beta 5的旧命令可继续控制协议版本1服务。若多会话、事件、导出或回放命令返回`unsupported_feature`，停止旧服务并从同一状态目录启动Beta 5；旧根`state.json`会被非破坏地导入。
+
 ## 名册人数少于预期
 
 在派发前运行 `participants set` 登记全体成员。页面只会自动补充已经发言或正在输入的新成员，无法猜测尚未出现的名字。
