@@ -136,7 +136,7 @@ See [SECURITY.md](SECURITY.md) for reporting and threat boundaries.
 
 ```bash
 python -m unittest discover -s tests -p "test_*.py" -v
-python tools/package_release.py --version 0.1.0-beta.5
+python tools/package_release.py --version 0.1.0-beta.6
 ```
 
 Visual checks require Node.js and the pinned Playwright development dependency:
@@ -150,7 +150,7 @@ Runtime code remains dependency-free. Development dependencies are not included 
 
 ## Release status and limits
 
-- `v0.1.0-beta.5` remains compatible with the Beta 4 HTTP protocol and state schema while adding event protocol version 1, persistent conversations, doctor/demo, export/replay, and host adapters.
+- `v0.1.0-beta.6` remains compatible with the Beta 4 HTTP protocol and state schema while adding event protocol version 1, persistent conversations, doctor/demo, export/replay, and host adapters. It also makes release ZIP metadata deterministic across Windows and POSIX builders.
 - Claude Code and Copilot compatibility is format-checked but not yet host-smoke-tested.
 - Browser auto-opening and forceful interruption depend on host capabilities.
 - GitHub-hosted macOS runners currently cannot exercise the detached localhost lifecycle because of [runner-images #14409](https://github.com/actions/runner-images/issues/14409); macOS still runs the remaining unit, HTTP, installer, and packaging coverage, while Ubuntu validates the POSIX detached lifecycle.

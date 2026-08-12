@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path
 
 SERVICE_NAME = "live-chat"
-APP_VERSION = "0.1.0-beta.5"
+APP_VERSION = "0.1.0-beta.6"
 PROTOCOL_VERSION = 1
 SCHEMA_VERSION = 1
 EVENT_PROTOCOL_VERSION = 1

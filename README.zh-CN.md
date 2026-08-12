@@ -125,7 +125,7 @@ python skill/live-chat/scripts/live_chat.py replay --file history.json --speed 0
 
 ```bash
 python -m unittest discover -s tests -p "test_*.py" -v
-python tools/package_release.py --version 0.1.0-beta.5
+python tools/package_release.py --version 0.1.0-beta.6
 ```
 
 视觉测试需要Node.js和锁定的Playwright开发依赖：
@@ -139,7 +139,7 @@ npx playwright install chromium
 
 ## 已知限制
 
-- `v0.1.0-beta.5`保持Beta 4 HTTP协议和状态Schema版本1兼容，新增事件协议版本1、多会话、诊断、Demo、导出回放和宿主适配。
+- `v0.1.0-beta.6`保持Beta 4 HTTP协议和状态Schema版本1兼容，新增事件协议版本1、多会话、诊断、Demo、导出回放和宿主适配，并确保 Windows 与 POSIX 构建生成确定一致的 ZIP 元数据。
 
 - Claude Code与Copilot目前完成格式兼容检查，但尚未完成对应宿主实测。
 - 自动打开浏览器和强制中断运行中子智能体依赖宿主能力。

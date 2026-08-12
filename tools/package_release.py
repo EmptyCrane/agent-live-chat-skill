@@ -44,6 +44,8 @@ def build(output_dir, version):
         for path in source_files():
             relative = path.relative_to(SOURCE)
             info = zipfile.ZipInfo((Path("live-chat") / relative).as_posix(), (2026, 1, 1, 0, 0, 0))
+            # Keep the ZIP byte-identical across Windows and POSIX builders.
+            info.create_system = 3
             info.compress_type = zipfile.ZIP_DEFLATED
             info.external_attr = 0o100644 << 16
             bundle.writestr(info, path.read_bytes(), compresslevel=9)
@@ -56,7 +58,7 @@ def build(output_dir, version):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--version", default="0.1.0-beta.5")
+    parser.add_argument("--version", default="0.1.0-beta.6")
     parser.add_argument("--output-dir", type=Path, default=REPO_ROOT / "dist")
     args = parser.parse_args(argv)
     archive, checksum = build(args.output_dir.resolve(), args.version)

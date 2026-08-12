@@ -3,6 +3,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,7 +20,7 @@ class ReleaseTests(unittest.TestCase):
             capture_output=True,
             check=True,
         )
-        self.assertEqual(result.stdout.strip(), "0.1.0-beta.5")
+        self.assertEqual(result.stdout.strip(), "0.1.0-beta.6")
         self.assertEqual(
             {item.name for item in SKILL.iterdir()},
             {"SKILL.md", "agents", "assets", "scripts", "references"},
@@ -70,6 +71,9 @@ class ReleaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             archive, _ = package_module.build(Path(directory), "audit")
             self.assertTrue(audit_module.audit_archive(archive))
+            with zipfile.ZipFile(archive) as bundle:
+                self.assertTrue(bundle.infolist())
+                self.assertEqual({info.create_system for info in bundle.infolist()}, {3})
 
     def test_readmes_use_locale_specific_screenshots(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
