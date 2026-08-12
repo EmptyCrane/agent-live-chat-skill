@@ -31,6 +31,11 @@ class ValidationError(ValueError):
         self.status = status
 
 
+def utf8_safe_text(value):
+    """Replace lone UTF-16 surrogate code units with the Unicode replacement character."""
+    return "".join("\ufffd" if 0xD800 <= ord(character) <= 0xDFFF else character for character in value)
+
+
 def require_mapping(value, label="request body"):
     if not isinstance(value, Mapping):
         raise ValidationError("invalid_type", "%s must be a JSON object" % label)
@@ -40,6 +45,7 @@ def require_mapping(value, label="request body"):
 def _text(value, field, minimum, maximum, strip=True):
     if not isinstance(value, str):
         raise ValidationError("invalid_%s" % field, "%s must be a string" % field)
+    value = utf8_safe_text(value)
     result = value.strip() if strip else value
     if len(result) < minimum or len(result) > maximum:
         raise ValidationError(
@@ -343,6 +349,9 @@ def validate_persisted_state(value):
         raise ValidationError("invalid_epoch", "epoch must be a non-negative integer")
     if not isinstance(revision, int) or revision < 0:
         raise ValidationError("invalid_revision", "revision must be a non-negative integer")
+    event_seq = value.get("event_seq", 0)
+    if not isinstance(event_seq, int) or event_seq < 0:
+        raise ValidationError("invalid_event_seq", "event_seq must be a non-negative integer")
     scene = validate_scene(value.get("scene", DEFAULT_SCENE))
     raw_messages = value.get("messages")
     if not isinstance(raw_messages, list):
@@ -367,6 +376,7 @@ def validate_persisted_state(value):
         "schema_version": SCHEMA_VERSION,
         "epoch": epoch,
         "revision": revision,
+        "event_seq": event_seq,
         "scene": scene,
         "session": session,
         "participants": participants,

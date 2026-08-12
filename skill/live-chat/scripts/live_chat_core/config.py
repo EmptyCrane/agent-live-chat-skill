@@ -7,9 +7,11 @@ import uuid
 from pathlib import Path
 
 SERVICE_NAME = "live-chat"
-APP_VERSION = "0.1.0-beta.4"
+APP_VERSION = "0.1.0-beta.5"
 PROTOCOL_VERSION = 1
 SCHEMA_VERSION = 1
+EVENT_PROTOCOL_VERSION = 1
+CATALOG_SCHEMA_VERSION = 1
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 MAX_BODY_BYTES = 5 * 1024 * 1024
@@ -112,3 +114,11 @@ def instance_path(state_dir):
 
 def log_path(state_dir):
     return Path(state_dir) / "server.log"
+
+
+def sessions_path(state_dir):
+    return Path(state_dir) / "sessions.json"
+
+
+def sessions_dir(state_dir):
+    return Path(state_dir) / "sessions"

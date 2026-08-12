@@ -2,22 +2,28 @@
 """Preview or install the bundled live-chat skill for supported hosts."""
 
 import argparse
+import hashlib
+import json
 import os
 import shutil
 import stat
+import subprocess
 import sys
+import tempfile
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
 SKILL_NAME = "live-chat"
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SOURCE = REPO_ROOT / "skill" / SKILL_NAME
-HOST_DIRS = {
-    "codex": {"user": Path(".agents/skills"), "project": Path(".agents/skills")},
-    "claude": {"user": Path(".claude/skills"), "project": Path(".claude/skills")},
-    "copilot": {"user": Path(".copilot/skills"), "project": Path(".github/skills")},
-}
 RUNTIME_ENTRIES = {"SKILL.md", "agents", "assets", "scripts", "references"}
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(SOURCE / "scripts"))
+from live_chat_core.adapters import HOST_ADAPTERS, skill_root_for  # noqa: E402
+
+INSTALL_HOSTS = ("codex", "agents", "claude", "copilot")
 
 
 class InstallError(RuntimeError):
@@ -78,23 +84,84 @@ def _assert_safe_destination(destination, base):
 
 def _detected_hosts(scope, home, project_root):
     detected = []
-    for host, paths in HOST_DIRS.items():
-        anchor = home if scope == "user" else project_root
-        marker = anchor / (paths[scope].parts[0] if scope == "user" else paths[scope])
+    for host in INSTALL_HOSTS:
+        root = skill_root_for(host, scope, home, project_root, os.environ)
+        marker = root.parent if scope == "user" else root
         if marker.is_dir():
             detected.append(host)
     if len(detected) != 1:
         detail = "none" if not detected else ", ".join(detected)
         raise InstallError(
-            "host auto-detection is ambiguous (%s); choose --host codex, claude, or copilot" % detail
+            "host auto-detection is ambiguous (%s); choose an explicit --host" % detail
         )
     return detected
 
 
+def _tree_hashes(root):
+    values = {}
+    for path in sorted(item for item in Path(root).rglob("*") if item.is_file()):
+        relative = path.relative_to(root).as_posix()
+        values[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return values
+
+
+def _verify_runtime(root):
+    _assert_plain_tree(root)
+    command = [sys.executable, "-B", str(Path(root) / "scripts" / "live_chat.py"), "--version"]
+    environment = os.environ.copy()
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    result = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+        env=environment,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        raise InstallError("installed runtime version check failed")
+
+
+def _post_install_doctor(root):
+    """Run the installed copy's own structural and state diagnostics."""
+    with tempfile.TemporaryDirectory(prefix="live-chat-install-doctor-") as state_dir:
+        command = [
+            sys.executable,
+            "-B",
+            str(Path(root) / "scripts" / "live_chat.py"),
+            "--state-dir",
+            state_dir,
+            "--json",
+            "doctor",
+            "--host",
+            "generic",
+            "--port",
+            "0",
+        ]
+        environment = os.environ.copy()
+        environment["PYTHONDONTWRITEBYTECODE"] = "1"
+        environment["PYTHONUTF8"] = "1"
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=15,
+            check=False,
+            env=environment,
+        )
+    try:
+        report = json.loads(result.stdout)
+    except ValueError as exc:
+        raise InstallError("post-install doctor returned invalid JSON") from exc
+    if result.returncode not in (0, 2) or not report.get("ok"):
+        raise InstallError("post-install doctor failed")
+    return report
+
+
 def install(host, scope, home, project_root, apply=False, replace=False, now=None):
     _assert_plain_tree(SOURCE)
-    anchor = home if scope == "user" else project_root
-    base = anchor / HOST_DIRS[host][scope]
+    base = skill_root_for(host, scope, home, project_root, os.environ)
     destination, base = _assert_safe_destination(base / SKILL_NAME, base)
     result = {"host": host, "scope": scope, "destination": str(destination), "action": "install"}
     if destination.exists():
@@ -110,12 +177,25 @@ def install(host, scope, home, project_root, apply=False, replace=False, now=Non
     if not apply:
         return result
     base.mkdir(parents=True, exist_ok=True)
-    if result["action"] == "replace":
-        destination.rename(Path(result["backup"]))
+    staging = base / (".%s.install-%s" % (SKILL_NAME, uuid.uuid4().hex))
     try:
-        shutil.copytree(SOURCE, destination, copy_function=shutil.copy2)
+        shutil.copytree(SOURCE, staging, copy_function=shutil.copy2)
+        if _tree_hashes(SOURCE) != _tree_hashes(staging):
+            raise InstallError("staged installation hash verification failed")
+        _verify_runtime(staging)
+        if result["action"] == "replace":
+            destination.rename(Path(result["backup"]))
+        staging.rename(destination)
+        if _tree_hashes(SOURCE) != _tree_hashes(destination):
+            raise InstallError("installed file hash verification failed")
+        result["doctor"] = _post_install_doctor(destination)
     except Exception:
-        if result["action"] == "replace" and not destination.exists():
+        if staging.exists():
+            shutil.rmtree(staging)
+        if destination.exists():
+            if result["action"] == "install" or Path(result.get("backup", "")).exists():
+                shutil.rmtree(destination)
+        if result["action"] == "replace" and not destination.exists() and Path(result["backup"]).exists():
             Path(result["backup"]).rename(destination)
         raise
     return result
@@ -125,7 +205,7 @@ def build_parser():
     parser = argparse.ArgumentParser(description="Safely install the live-chat Agent Skill")
     parser.add_argument(
         "--host",
-        choices=("auto", "codex", "claude", "copilot", "all"),
+        choices=("auto",) + INSTALL_HOSTS + ("all",),
         default="auto",
         help="target host; auto requires exactly one existing host Skill root",
     )
@@ -142,7 +222,7 @@ def main(argv=None):
     project_root = args.project_root.expanduser().resolve()
     try:
         if args.host == "all":
-            hosts = list(HOST_DIRS)
+            hosts = ["codex", "claude", "copilot"]
         elif args.host == "auto":
             hosts = _detected_hosts(args.scope, home, project_root)
         else:

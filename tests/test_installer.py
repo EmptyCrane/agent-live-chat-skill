@@ -1,4 +1,5 @@
 import importlib.util
+import os
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -30,6 +31,10 @@ class InstallerTests(unittest.TestCase):
                 self.assertFalse(Path(result["destination"]).exists())
             self.assertEqual(
                 Path(installer.install("codex", "user", root, root)["destination"]).resolve(),
+                (root / ".codex" / "skills" / "live-chat").resolve(),
+            )
+            self.assertEqual(
+                Path(installer.install("agents", "user", root, root)["destination"]).resolve(),
                 (root / ".agents" / "skills" / "live-chat").resolve(),
             )
 
@@ -62,6 +67,16 @@ class InstallerTests(unittest.TestCase):
                 (project / ".github" / "skills" / "live-chat").resolve(),
             )
 
+    def test_post_install_doctor_failure_rolls_back_new_install(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.object(installer, "_post_install_doctor", side_effect=installer.InstallError("doctor failed")):
+                with self.assertRaises(installer.InstallError):
+                    installer.install("agents", "user", root, root, apply=True)
+            destination = root / ".agents" / "skills" / "live-chat"
+            self.assertFalse(destination.exists())
+            self.assertEqual(list(destination.parent.glob(".live-chat.install-*")), [])
+
     def test_auto_detection_prefers_existing_host_roots(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -91,12 +106,23 @@ class InstallerTests(unittest.TestCase):
             )
 
     def test_public_host_path_mapping(self):
-        self.assertEqual(installer.HOST_DIRS["codex"]["user"], Path(".agents/skills"))
-        self.assertEqual(installer.HOST_DIRS["codex"]["project"], Path(".agents/skills"))
-        self.assertEqual(installer.HOST_DIRS["claude"]["user"], Path(".claude/skills"))
-        self.assertEqual(installer.HOST_DIRS["claude"]["project"], Path(".claude/skills"))
-        self.assertEqual(installer.HOST_DIRS["copilot"]["user"], Path(".copilot/skills"))
-        self.assertEqual(installer.HOST_DIRS["copilot"]["project"], Path(".github/skills"))
+        adapters = installer.HOST_ADAPTERS
+        self.assertEqual(adapters["codex"]["user_fallback"], ".codex/skills")
+        self.assertEqual(adapters["codex"]["project_root"], ".agents/skills")
+        self.assertEqual(adapters["agents"]["user_root"], ".agents/skills")
+        self.assertEqual(adapters["claude"]["project_root"], ".claude/skills")
+        self.assertEqual(adapters["copilot"]["project_root"], ".github/skills")
+
+    def test_codex_home_override_has_priority(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            codex_home = root / "custom-codex"
+            with patch.dict(os.environ, {"CODEX_HOME": str(codex_home)}):
+                result = installer.install("codex", "user", root / "home", root / "project")
+            self.assertEqual(
+                Path(result["destination"]).resolve(),
+                (codex_home / "skills" / "live-chat").resolve(),
+            )
 
     def test_destination_escape_and_symlink_are_rejected(self):
         with tempfile.TemporaryDirectory() as directory:

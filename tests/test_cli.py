@@ -55,7 +55,7 @@ class CliTests(unittest.TestCase):
         self.run_cli("stop", check=False)
         self.temp.cleanup()
 
-    def run_cli(self, *arguments, input_text=None, check=True):
+    def run_cli(self, *arguments, input_text=None, check=True, cwd=None):
         command = [
             sys.executable,
             "-B",
@@ -71,6 +71,7 @@ class CliTests(unittest.TestCase):
             capture_output=True,
             check=False,
             env=self.environment,
+            cwd=cwd,
             timeout=15,
         )
         if check and result.returncode:
@@ -90,13 +91,15 @@ class CliTests(unittest.TestCase):
         started = self.run_cli("--json", "start", "--port", "0", "--no-legacy")
         instance = json.loads(started.stdout)
         self.assertTrue(instance["url"].startswith("http://127.0.0.1:"))
-        self.assertEqual(instance["app_version"], "0.1.0-beta.4")
+        self.assertEqual(instance["app_version"], "0.1.0-beta.5")
         self.run_cli("msg", "Alice", "--stdin", input_text="Line one\nLine two")
         self.run_cli("participants", "set", "Alice", "Waiting", "Alice")
         self.run_cli("session", "set", "--stdin", input_text=self.session_json())
         status = self.run_cli("--json", "status")
         value = json.loads(status.stdout)
-        self.assertEqual(value["app_version"], "0.1.0-beta.4")
+        self.assertEqual(value["app_version"], "0.1.0-beta.5")
+        self.assertTrue(value["active_session_id"])
+        self.assertEqual(len(value["sessions"]), 1)
         self.assertEqual(value["messages"], 1)
         self.assertEqual(value["participants"], ["Alice", "Waiting"])
         self.assertEqual(value["session"]["status"], "running")
@@ -133,6 +136,71 @@ class CliTests(unittest.TestCase):
         result = self.run_cli("session", "set", check=False)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("requires exactly one", result.stderr)
+
+    def test_doctor_returns_structured_checks(self):
+        result = self.run_cli("--json", "doctor", "--host", "generic", "--port", "0", check=False)
+        value = json.loads(result.stdout)
+        self.assertTrue(value["ok"])
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(value["status"], "warn")
+        self.assertEqual(value["exit_code"], 2)
+        self.assertIn("python", {check["id"] for check in value["checks"]})
+        self.assertIn("state_directory", {check["id"] for check in value["checks"]})
+
+        project = Path(self.temp.name) / "project"
+        (project / ".agents" / "skills" / "live-chat").mkdir(parents=True)
+        (project / ".agents" / "skills" / "live-chat" / "SKILL.md").write_text(
+            "---\nname: live-chat\n---\n", encoding="utf-8"
+        )
+        self.run_cli("start", "--port", "0", "--no-legacy")
+        healthy = self.run_cli(
+            "--json", "doctor", "--host", "generic", "--scope", "project", "--port", "0", cwd=project
+        )
+        healthy_value = json.loads(healthy.stdout)
+        self.assertEqual(healthy_value["status"], "pass")
+        self.assertEqual(healthy_value["exit_code"], 0)
+
+        self.run_cli("stop")
+        (self.state_dir / "sessions.json").write_text("{broken", encoding="utf-8")
+        failed = self.run_cli(
+            "--json", "doctor", "--host", "generic", "--scope", "project", "--port", "0",
+            check=False, cwd=project,
+        )
+        self.assertEqual(failed.returncode, 1)
+        self.assertEqual(json.loads(failed.stdout)["status"], "fail")
+
+    @unittest.skipIf(SKIP_PROCESS_TESTS, PROCESS_SKIP_REASON)
+    def test_demo_export_and_replay_are_non_destructive(self):
+        demo = json.loads(self.run_cli("--json", "demo", "--lang", "en", "--port", "0").stdout)
+        self.assertIn("session=", demo["url"])
+        source_id = demo["session_id"]
+        export_file = Path(self.temp.name) / "history.json"
+        self.run_cli("export", source_id, "--format", "events", "--file", str(export_file))
+        exported = json.loads(export_file.read_text(encoding="utf-8"))
+        self.assertEqual(exported["format"], "live-chat-export/v1")
+        replayed = json.loads(
+            self.run_cli("--json", "replay", "--file", str(export_file), "--speed", "0").stdout
+        )
+        self.assertNotEqual(replayed["session_id"], source_id)
+        catalog = json.loads(self.run_cli("--json", "sessions", "list", "--archived").stdout)
+        self.assertIn(source_id, {item["session_id"] for item in catalog["sessions"]})
+        source = json.loads(self.run_cli("--json", "sessions", "show", source_id).stdout)
+        self.assertEqual(len(source["state"]["messages"]), 3)
+
+    @unittest.skipIf(SKIP_PROCESS_TESTS, PROCESS_SKIP_REASON)
+    def test_invalid_replay_does_not_create_a_session(self):
+        self.run_cli("start", "--port", "0", "--no-legacy")
+        before = json.loads(self.run_cli("--json", "sessions", "list", "--archived").stdout)
+        invalid = Path(self.temp.name) / "invalid.json"
+        invalid.write_text(json.dumps({
+            "format": "live-chat-export/v1",
+            "kind": "events",
+            "events": [{"type": "message.created", "payload": {"sender": "Agent", "text": ""}}],
+        }), encoding="utf-8")
+        result = self.run_cli("replay", "--file", str(invalid), check=False)
+        self.assertNotEqual(result.returncode, 0)
+        after = json.loads(self.run_cli("--json", "sessions", "list", "--archived").stdout)
+        self.assertEqual(len(after["sessions"]), len(before["sessions"]))
 
 
 if __name__ == "__main__":

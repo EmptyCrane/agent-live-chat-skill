@@ -157,6 +157,7 @@ class StateStore:
             return {
                 "epoch": self._state["epoch"],
                 "revision": self._state["revision"],
+                "event_seq": self._state.get("event_seq", 0),
                 "total": total,
                 "scene": deepcopy(self._state["scene"]),
                 "session": deepcopy(self._state["session"]),

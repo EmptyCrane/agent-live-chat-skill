@@ -7,7 +7,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from .config import APP_VERSION, MAX_BODY_BYTES, PROTOCOL_VERSION, SERVICE_NAME
+from .config import (
+    APP_VERSION,
+    EVENT_PROTOCOL_VERSION,
+    MAX_BODY_BYTES,
+    PROTOCOL_VERSION,
+    SERVICE_NAME,
+)
 from .validation import ValidationError, require_mapping, validate_since
 
 
@@ -66,7 +72,7 @@ class LiveChatHandler(BaseHTTPRequestHandler):
 
     def _health(self):
         snapshot = self.server.store.snapshot(0)
-        return {
+        value = {
             "ok": True,
             "service": SERVICE_NAME,
             "app_version": APP_VERSION,
@@ -76,6 +82,20 @@ class LiveChatHandler(BaseHTTPRequestHandler):
             "epoch": snapshot["epoch"],
             "revision": snapshot["revision"],
         }
+        if hasattr(self.server.store, "list_sessions"):
+            value.update({
+                "event_protocol_version": EVENT_PROTOCOL_VERSION,
+                "features": ["sessions", "events", "export", "replay", "doctor", "demo"],
+            })
+        return value
+
+    def _require_sessions(self):
+        if not hasattr(self.server.store, "list_sessions"):
+            raise ValidationError(
+                "unsupported_feature",
+                "this service does not support multi-session operations",
+                409,
+            )
 
     def do_GET(self):
         try:
@@ -95,12 +115,30 @@ class LiveChatHandler(BaseHTTPRequestHandler):
             if parsed.path == "/api/state":
                 query = parse_qs(parsed.query, keep_blank_values=True)
                 since = validate_since(query.get("since", ["0"])[0])
-                state = self.server.store.snapshot(since)
+                session_id = query.get("session", [None])[0] or None
+                if session_id is not None:
+                    self._require_sessions()
+                    state = self.server.store.snapshot(since, session_id)
+                else:
+                    state = self.server.store.snapshot(since)
                 state.update({
                     "protocol_version": PROTOCOL_VERSION,
                     "instance_id": self.server.instance_id,
                 })
                 self._json(state)
+                return
+            if parsed.path == "/api/sessions":
+                self._require_sessions()
+                query = parse_qs(parsed.query, keep_blank_values=True)
+                include_archived = query.get("include_archived", ["0"])[0] in ("1", "true")
+                self._json(self.server.store.list_sessions(include_archived))
+                return
+            if parsed.path == "/api/events":
+                self._require_sessions()
+                query = parse_qs(parsed.query, keep_blank_values=True)
+                session_id = query.get("session", [None])[0] or None
+                after = validate_since(query.get("after", ["0"])[0])
+                self._json(self.server.store.get_events(session_id, after))
                 return
             self._error("not_found", "endpoint not found", 404)
         except ValidationError as exc:
@@ -132,6 +170,31 @@ class LiveChatHandler(BaseHTTPRequestHandler):
                 result = self.server.store.reset(body.get("scene"))
             elif parsed.path == "/api/seed":
                 result = self.server.store.seed(body)
+            elif parsed.path == "/api/sessions":
+                self._require_sessions()
+                result = self.server.store.create_session(
+                    body.get("title"),
+                    body.get("subtitle", ""),
+                    body.get("source"),
+                )
+            elif parsed.path == "/api/sessions/select":
+                self._require_sessions()
+                result = self.server.store.select_session(body.get("session_id"), body.get("source"))
+            elif parsed.path == "/api/sessions/archive":
+                self._require_sessions()
+                result = self.server.store.archive_session(body.get("session_id"), body.get("source"))
+            elif parsed.path == "/api/sessions/restore":
+                self._require_sessions()
+                result = self.server.store.restore_session(body.get("session_id"), body.get("source"))
+            elif parsed.path == "/api/events":
+                self._require_sessions()
+                result = self.server.store.emit_event(body, body.get("session_id"))
+            elif parsed.path == "/api/events/batch":
+                self._require_sessions()
+                events = body.get("events")
+                if not isinstance(events, list):
+                    raise ValidationError("invalid_event_batch", "events must be an array")
+                result = self.server.store.emit_batch(events, body.get("session_id"))
             elif parsed.path == "/api/shutdown":
                 result = {"ok": True, "instance_id": self.server.instance_id}
                 self._json(result)

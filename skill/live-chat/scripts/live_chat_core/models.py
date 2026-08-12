@@ -36,6 +36,7 @@ def initial_state():
         "schema_version": SCHEMA_VERSION,
         "epoch": 0,
         "revision": 0,
+        "event_seq": 0,
         "scene": deepcopy(DEFAULT_SCENE),
         "session": deepcopy(DEFAULT_SESSION),
         "participants": [],

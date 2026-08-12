@@ -64,7 +64,7 @@ class ServerTests(unittest.TestCase):
     def test_health_message_and_incremental_state(self):
         _, health = self.request("/api/health")
         self.assertEqual(health["service"], "live-chat")
-        self.assertEqual(health["app_version"], "0.1.0-beta.4")
+        self.assertEqual(health["app_version"], "0.1.0-beta.5")
         self.assertEqual(health["instance_id"], "test-instance")
         self.request("/api/msg", "POST", {"sender": "Alice", "text": "One"})
         self.request("/api/msg", "POST", {"sender": "Bob", "text": "Two"})
@@ -159,6 +159,9 @@ class ServerTests(unittest.TestCase):
         self.assertIn("Live multi-agent group chat", body)
         self.assertIn("URLSearchParams(window.location.search)", body)
         self.assertIn("document.documentElement.lang = locale", body)
+        self.assertIn("rail-session-select", body)
+        self.assertIn("/api/sessions?include_archived=1", body)
+        self.assertIn("encodeURIComponent(selectedSession)", body)
 
     def test_large_history_seed_and_incremental_read(self):
         messages = [

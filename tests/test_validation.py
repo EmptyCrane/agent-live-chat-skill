@@ -17,6 +17,7 @@ from live_chat_core.validation import (  # noqa: E402
     validate_seed,
     validate_since,
     validate_typing,
+    utf8_safe_text,
 )
 from live_chat_core.models import initial_state  # noqa: E402
 
@@ -49,6 +50,11 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(value["sender"], "Alice")
         self.assertEqual(value["text"], "hello")
         self.assertEqual(value["id"], 1)
+
+    def test_replaces_lone_surrogates_without_losing_valid_unicode(self):
+        self.assertEqual(utf8_safe_text("智能引号\udc9d保留中文"), "智能引号\ufffd保留中文")
+        value = validate_message({"sender": "Agent", "text": "reply\udc9d"}, 1)
+        self.assertEqual(value["text"], "reply\ufffd")
 
     def test_system_message_allows_empty_sender(self):
         value = validate_message({"text": "Round 2", "sys": True}, 3)
