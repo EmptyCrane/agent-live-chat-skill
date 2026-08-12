@@ -6,7 +6,6 @@ htmlcov/
 node_modules/
 dist/
 screenshots/
-docs/images/*.png
 *.log
 state.json
 instance.json

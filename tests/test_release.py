@@ -74,6 +74,10 @@ class ReleaseTests(unittest.TestCase):
     def test_readmes_use_locale_specific_screenshots(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         chinese = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
-        self.assertIn("v0.1.0-beta.4/live-chat-en.png", readme)
-        self.assertIn("v0.1.0-beta.4/live-chat-zh-CN.png", chinese)
-        self.assertNotIn("docs/images/", readme + chinese)
+        english_image = "docs/images/live-chat-en.png"
+        chinese_image = "docs/images/live-chat-zh-CN.png"
+        self.assertIn(english_image, readme)
+        self.assertIn(chinese_image, chinese)
+        self.assertTrue((ROOT / english_image).is_file())
+        self.assertTrue((ROOT / chinese_image).is_file())
+        self.assertNotIn("releases/download/", readme + chinese)

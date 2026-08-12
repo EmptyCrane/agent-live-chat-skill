@@ -6,7 +6,7 @@
 
 > **Beta状态：** Codex已验证；Claude Code和GitHub Copilot采用相同开放Skill格式，但在完成对应宿主冒烟测试前标记为实验性。
 
-![Agent Live Chat中文界面](https://github.com/EmptyCrane/agent-live-chat-skill/releases/download/v0.1.0-beta.4/live-chat-zh-CN.png)
+![Agent Live Chat中文界面](docs/images/live-chat-zh-CN.png)
 
 ## 主要能力
 

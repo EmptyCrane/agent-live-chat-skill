@@ -6,7 +6,7 @@ An open [Agent Skills](https://agentskills.io/) project that streams real multi-
 
 > **Beta:** Codex is verified. Claude Code and GitHub Copilot use the same open Skill format but remain experimental until host-level smoke tests are completed.
 
-![Agent Live Chat UI in English](https://github.com/EmptyCrane/agent-live-chat-skill/releases/download/v0.1.0-beta.4/live-chat-en.png)
+![Agent Live Chat UI in English](docs/images/live-chat-en.png)
 
 ## Highlights
 
