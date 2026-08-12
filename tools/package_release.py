@@ -56,7 +56,7 @@ def build(output_dir, version):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--version", default="0.1.0-beta.4")
+    parser.add_argument("--version", default="0.1.0-beta.5")
     parser.add_argument("--output-dir", type=Path, default=REPO_ROOT / "dist")
     args = parser.parse_args(argv)
     archive, checksum = build(args.output_dir.resolve(), args.version)
