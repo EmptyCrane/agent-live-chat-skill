@@ -26,6 +26,9 @@ jobs:
         python: ["3.9", "3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Audit the candidate commit, not GitHub's synthetic PR merge commit.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}

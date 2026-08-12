@@ -232,7 +232,7 @@ class CliTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("requires exactly one", result.stderr)
 
-    def test_doctor_returns_structured_checks(self):
+    def test_doctor_returns_structured_warning_without_service(self):
         result = self.run_cli("--json", "doctor", "--host", "generic", "--port", "0", check=False)
         value = json.loads(result.stdout)
         self.assertTrue(value["ok"])
@@ -242,6 +242,8 @@ class CliTests(unittest.TestCase):
         self.assertIn("python", {check["id"] for check in value["checks"]})
         self.assertIn("state_directory", {check["id"] for check in value["checks"]})
 
+    @unittest.skipIf(SKIP_PROCESS_TESTS, PROCESS_SKIP_REASON)
+    def test_doctor_checks_running_service_and_corrupt_catalog(self):
         project = Path(self.temp.name) / "project"
         (project / ".agents" / "skills" / "live-chat").mkdir(parents=True)
         (project / ".agents" / "skills" / "live-chat" / "SKILL.md").write_text(

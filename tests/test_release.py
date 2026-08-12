@@ -81,3 +81,10 @@ class ReleaseTests(unittest.TestCase):
         self.assertTrue((ROOT / english_image).is_file())
         self.assertTrue((ROOT / chinese_image).is_file())
         self.assertNotIn("releases/download/", readme + chinese)
+
+    def test_python_ci_audits_the_candidate_commit(self):
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        self.assertIn(
+            "ref: ${{ github.event.pull_request.head.sha || github.sha }}",
+            workflow,
+        )
