@@ -1,0 +1,54 @@
+"""State model helpers."""
+
+from copy import deepcopy
+
+from .config import SCHEMA_VERSION
+
+DEFAULT_SCENE = {
+    "title": "群聊直播",
+    "subtitle": "等待主持人开场…",
+}
+
+DEFAULT_SESSION = {
+    "status": "idle",
+    "background": "",
+    "objective": "",
+    "deliverable": "",
+    "criteria": [],
+    "model_policy": {
+        "default": "inherit",
+        "reasoning_effort": "inherit",
+        "fallback": "ask",
+    },
+    "roles": [],
+    "round": {
+        "current": 0,
+        "max": 3,
+        "phase": "not_started",
+        "completed_participants": [],
+    },
+    "stop_reason": "",
+}
+
+
+def initial_state():
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "epoch": 0,
+        "revision": 0,
+        "scene": deepcopy(DEFAULT_SCENE),
+        "session": deepcopy(DEFAULT_SESSION),
+        "participants": [],
+        "messages": [],
+        "typing": {},
+    }
+
+
+def public_message(message):
+    return {
+        "id": int(message["id"]),
+        "sender": str(message.get("sender", "")),
+        "text": str(message["text"]),
+        "sys": bool(message.get("sys", False)),
+        "ts": str(message.get("ts", "")),
+    }

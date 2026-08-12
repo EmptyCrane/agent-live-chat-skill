@@ -1,0 +1,1165 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Live group chat</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+      --app-bg: #eaf6ff;
+      --surface: #f8fcff;
+      --surface-raised: #ffffff;
+      --chat-bg: #e4f3fb;
+      --header: #2596d1;
+      --header-strong: #187aba;
+      --header-text: #ffffff;
+      --header-muted: #dff5ff;
+      --text: #16324a;
+      --muted: #66849a;
+      --line: rgba(35, 105, 148, .14);
+      --bubble: #ffffff;
+      --bubble-shadow: rgba(34, 105, 148, .12);
+      --system-bg: rgba(49, 128, 172, .78);
+      --system-text: #ffffff;
+      --typing-bg: #f6fbff;
+      --accent: #168bc6;
+      --good: #23bb83;
+      --bad: #e26b6b;
+      --overlay: rgba(16, 54, 80, .44);
+      --session-running: #168bc6;
+      --session-paused: #d99120;
+      --session-waiting: #8064d8;
+      --session-completed: #22a878;
+      --session-stopped: #7a8d9a;
+      --session-failed: #d75b64;
+      --rail-width: 292px;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; }
+    body {
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 12% 18%, rgba(255,255,255,.46) 0 2px, transparent 3px),
+        radial-gradient(circle at 84% 74%, rgba(31,143,197,.10) 0 2px, transparent 3px),
+        linear-gradient(145deg, var(--app-bg), #cfeeff);
+      background-size: 42px 42px, 56px 56px, auto;
+      color: var(--text);
+    }
+    button { border: 0; padding: 0; font: inherit; color: inherit; }
+    button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+    .workspace {
+      width: 100%;
+      height: 100dvh;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      overflow: hidden;
+      background: var(--surface);
+    }
+    .chat-pane { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--chat-bg); }
+    .topbar {
+      z-index: 4;
+      flex: 0 0 60px;
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 7px 12px;
+      color: var(--header-text);
+      background: linear-gradient(135deg, var(--header), var(--header-strong));
+      box-shadow: 0 1px 0 rgba(0,0,0,.13);
+    }
+    .room-mark {
+      flex: 0 0 38px;
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: rgba(255,255,255,.16);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.12);
+      font-size: 18px;
+    }
+    .titlebox { min-width: 0; flex: 1; }
+    #scene-title, #scene-sub { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    #scene-title { font-size: 16px; font-weight: 680; line-height: 1.3; letter-spacing: .01em; }
+    #scene-sub { margin-top: 2px; color: var(--header-muted); font-size: 11.5px; line-height: 1.25; }
+    .connection {
+      flex: none;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      max-width: 76px;
+      color: var(--header-muted);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      flex: none;
+      border-radius: 50%;
+      background: var(--bad);
+      box-shadow: 0 0 0 3px rgba(226,107,107,.12);
+      transition: background-color 180ms ease, box-shadow 180ms ease;
+    }
+    .status-dot.ok { background: var(--good); box-shadow: 0 0 0 3px rgba(71,189,135,.14); }
+    #status-text { overflow: hidden; text-overflow: ellipsis; }
+
+    .theme-toggle {
+      width: 34px;
+      height: 34px;
+      flex: none;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      color: var(--header-text);
+      background: rgba(255,255,255,.12);
+      cursor: pointer;
+      font-size: 16px;
+      line-height: 1;
+    }
+    .theme-toggle:hover { background: rgba(255,255,255,.20); }
+
+    .member-trigger {
+      flex: none;
+      min-width: 56px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 5px;
+      padding: 0 4px;
+      border-radius: 20px;
+      background: transparent;
+      cursor: pointer;
+    }
+    .member-trigger:hover { background: rgba(255,255,255,.10); }
+    .avatar-stack { display: flex; flex-direction: row-reverse; justify-content: flex-start; }
+    .stack-avatar {
+      width: 27px;
+      height: 27px;
+      display: grid;
+      place-items: center;
+      margin-left: -9px;
+      border: 2px solid var(--header);
+      border-radius: 50%;
+      font-size: 13px;
+      box-shadow: 0 1px 2px rgba(0,0,0,.16);
+    }
+    .stack-avatar:first-child { margin-left: 0; }
+    .member-total { min-width: 14px; color: #fff; font-size: 11px; font-weight: 650; text-align: center; }
+
+    .session-bar {
+      z-index: 3;
+      min-width: 0;
+      min-height: 38px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 12px;
+      border-bottom: 1px solid var(--line);
+      color: var(--text);
+      background: color-mix(in srgb, var(--surface-raised) 94%, var(--session-running));
+      box-shadow: 0 1px 3px rgba(27, 88, 123, .05);
+    }
+    .session-bar[hidden] { display: none; }
+    .session-state-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--session-running); }
+    .session-objective { min-width: 0; flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; font-weight: 650; }
+    .session-progress { flex: none; color: var(--muted); font-size: 10.5px; white-space: nowrap; }
+    .session-bar[data-status="paused"] .session-state-dot { background: var(--session-paused); }
+    .session-bar[data-status="waiting_user"] .session-state-dot { background: var(--session-waiting); }
+    .session-bar[data-status="completed"] .session-state-dot { background: var(--session-completed); }
+    .session-bar[data-status="stopped"] .session-state-dot { background: var(--session-stopped); }
+    .session-bar[data-status="partial_failure"] .session-state-dot { background: var(--session-failed); }
+
+    .chat-scroll {
+      position: relative;
+      min-width: 0;
+      min-height: 0;
+      flex: 1;
+      overflow-x: hidden;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(62,83,94,.40) transparent;
+      background:
+        radial-gradient(circle at 16px 14px, rgba(255,255,255,.24) 0 1px, transparent 1.5px),
+        radial-gradient(circle at 38px 32px, rgba(70,103,119,.06) 0 1px, transparent 1.5px),
+        var(--chat-bg);
+      background-size: 48px 48px;
+    }
+    .chat-scroll::-webkit-scrollbar { width: 6px; }
+    .chat-scroll::-webkit-scrollbar-thumb { border-radius: 3px; background: rgba(62,83,94,.40); }
+    #msgs {
+      width: min(100%, 760px);
+      min-height: 100%;
+      margin: 0 auto;
+      padding: 18px 12px 28px;
+    }
+    #msgs:empty::before {
+      content: attr(data-empty-text);
+      display: block;
+      width: fit-content;
+      margin: 34vh auto 0;
+      padding: 7px 12px;
+      border-radius: 16px;
+      color: var(--system-text);
+      background: var(--system-bg);
+      font-size: 12px;
+      box-shadow: 0 1px 2px rgba(0,0,0,.10);
+    }
+    .message-row {
+      width: 100%;
+      display: grid;
+      grid-template-columns: 36px minmax(0, 1fr);
+      align-items: end;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .message-row:first-child { margin-top: 0; }
+    .message-row.same { margin-top: 3px; }
+    .message-row.same .avatar { visibility: hidden; }
+    .message-row.same .message-meta { display: none; }
+    .avatar {
+      width: 36px;
+      height: 36px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      font-size: 18px;
+      box-shadow: 0 1px 2px rgba(0,0,0,.16), inset 0 0 0 1px rgba(255,255,255,.14);
+      user-select: none;
+    }
+    .message-bubble {
+      width: fit-content;
+      max-width: min(82%, 600px);
+      min-width: 78px;
+      padding: 7px 11px 8px;
+      border-radius: 14px 14px 14px 4px;
+      background: var(--bubble);
+      box-shadow: 0 1px 2px var(--bubble-shadow);
+      overflow: hidden;
+    }
+    .message-meta { display: flex; align-items: baseline; gap: 7px; min-width: 0; margin-bottom: 2px; }
+    .sender-name { min-width: 0; max-width: 220px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12.5px; font-weight: 680; }
+    .message-time { flex: none; color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+    .message-text { color: var(--text); font-size: 15.5px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .system-message {
+      width: fit-content;
+      max-width: 88%;
+      margin: 17px auto 12px;
+      padding: 5px 10px;
+      border-radius: 13px;
+      color: var(--system-text);
+      background: var(--system-bg);
+      font-size: 11.5px;
+      line-height: 1.35;
+      text-align: center;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      box-shadow: 0 1px 2px rgba(0,0,0,.10);
+    }
+    .enter { animation: message-enter 200ms cubic-bezier(.22,.75,.28,1) both; }
+    .round-enter { animation: round-enter 420ms ease-out both; }
+    @keyframes message-enter { from { opacity: 0; transform: translateY(5px) scale(.992); } to { opacity: 1; transform: none; } }
+    @keyframes round-enter { 0% { opacity: 0; transform: translateY(4px); background: var(--accent); } 100% { opacity: 1; transform: none; background: var(--system-bg); } }
+
+    .typing-bar {
+      z-index: 3;
+      flex: 0 0 auto;
+      min-height: 34px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 6px 13px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      background: var(--typing-bg);
+      font-size: 11.5px;
+      box-shadow: 0 -1px 4px rgba(36,54,64,.04);
+    }
+    .typing-bar[hidden] { display: none; }
+    .typing-avatar { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; font-size: 11px; }
+    .typing-copy { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .typing-dots { display: inline-flex; align-items: flex-end; gap: 2px; margin-left: 3px; height: 9px; }
+    .typing-dots i { width: 3px; height: 3px; border-radius: 50%; background: currentColor; animation: typing-dot 1.1s ease-in-out infinite; }
+    .typing-dots i:nth-child(2) { animation-delay: 140ms; }
+    .typing-dots i:nth-child(3) { animation-delay: 280ms; }
+    @keyframes typing-dot { 0%,60%,100% { transform: translateY(0); opacity: .45; } 30% { transform: translateY(-3px); opacity: 1; } }
+
+    .participant-rail { display: none; min-width: 0; background: var(--surface); border-left: 1px solid var(--line); }
+    .rail-header { padding: 15px 16px 11px; border-bottom: 1px solid var(--line); }
+    .rail-eyebrow { color: var(--accent); font-size: 10px; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; }
+    .rail-title { margin-top: 5px; font-size: 18px; font-weight: 700; }
+    .rail-subtitle { margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .rail-count { display: inline-flex; margin-top: 7px; padding: 3px 8px; border-radius: 11px; color: var(--muted); background: var(--chat-bg); font-size: 11px; }
+    .member-list { min-height: 0; overflow-y: auto; padding: 8px; }
+    .member-list:empty::before { content: attr(data-empty-text); display: block; padding: 18px 10px; color: var(--muted); font-size: 12px; text-align: center; }
+    .member-item { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 10px; }
+    .member-item:hover { background: color-mix(in srgb, var(--chat-bg) 72%, transparent); }
+    .member-avatar { width: 38px; height: 38px; flex: none; display: grid; place-items: center; border-radius: 50%; font-size: 18px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.12); }
+    .member-copy { min-width: 0; }
+    .member-name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13px; font-weight: 650; }
+    .member-role { margin-top: 2px; color: var(--muted); font-size: 10.5px; }
+    .session-detail { padding: 11px 15px; border-bottom: 1px solid var(--line); background: var(--surface-raised); }
+    .session-detail[hidden] { display: none; }
+    .session-detail-head { display: flex; align-items: center; gap: 7px; }
+    .session-badge { padding: 3px 7px; border-radius: 10px; color: #fff; background: var(--session-running); font-size: 10px; font-weight: 700; }
+    .session-badge[data-status="paused"] { background: var(--session-paused); }
+    .session-badge[data-status="waiting_user"] { background: var(--session-waiting); }
+    .session-badge[data-status="completed"] { background: var(--session-completed); }
+    .session-badge[data-status="stopped"] { background: var(--session-stopped); }
+    .session-badge[data-status="partial_failure"] { background: var(--session-failed); }
+    .session-detail-progress { color: var(--muted); font-size: 10.5px; }
+    .session-detail-label { margin-top: 9px; color: var(--accent); font-size: 9.5px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+    .session-detail-text { margin-top: 3px; font-size: 11.5px; line-height: 1.42; overflow-wrap: anywhere; }
+    .session-detail-list { margin: 4px 0 0; padding-left: 17px; color: var(--text); font-size: 10.8px; line-height: 1.45; }
+    .session-role-list { display: grid; gap: 5px; margin-top: 5px; }
+    .session-role { padding-left: 8px; border-left: 2px solid var(--line); }
+    .session-role-name { font-size: 10.8px; font-weight: 700; }
+    .session-role-focus { margin-top: 1px; color: var(--muted); font-size: 10.2px; line-height: 1.35; overflow-wrap: anywhere; }
+    .session-role-meta { margin-top: 2px; color: var(--accent); font-size: 9.8px; line-height: 1.35; overflow-wrap: anywhere; }
+    .session-role-setting { margin-top: 1px; color: var(--muted); font-size: 9.8px; line-height: 1.35; overflow-wrap: anywhere; }
+    .session-role-fallback { color: var(--session-paused); }
+    .session-reason { color: var(--muted); }
+    .session-detail[data-status="paused"] .session-reason { color: var(--session-paused); }
+    .session-detail[data-status="waiting_user"] .session-reason { color: var(--session-waiting); }
+    .session-detail[data-status="completed"] .session-reason { color: var(--session-completed); }
+    .session-detail[data-status="partial_failure"] .session-reason { color: var(--session-failed); }
+
+    .sheet-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 10;
+      display: grid;
+      align-items: end;
+      background: var(--overlay);
+      opacity: 1;
+      transition: opacity 180ms ease;
+    }
+    .sheet-backdrop[hidden] { display: none; }
+    .member-sheet {
+      max-height: min(72vh, 560px);
+      display: flex;
+      flex-direction: column;
+      border-radius: 18px 18px 0 0;
+      background: var(--surface-raised);
+      box-shadow: 0 -12px 34px rgba(20,35,43,.22);
+      animation: sheet-enter 190ms ease-out both;
+    }
+    @keyframes sheet-enter { from { transform: translateY(16px); opacity: 0; } to { transform: none; opacity: 1; } }
+    .sheet-handle { width: 34px; height: 4px; margin: 7px auto 2px; border-radius: 2px; background: var(--line); }
+    .sheet-header { display: flex; align-items: center; gap: 8px; padding: 11px 15px 9px; border-bottom: 1px solid var(--line); }
+    .sheet-title { flex: 1; font-size: 16px; font-weight: 700; }
+    .sheet-close { width: 34px; height: 34px; border-radius: 50%; background: var(--chat-bg); cursor: pointer; font-size: 20px; line-height: 1; }
+    .sheet-close:hover { background: var(--line); }
+    #sheet-member-list { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+
+    @media (min-width: 521px) and (max-width: 819px) {
+      body { padding: 14px; }
+      .workspace { max-width: 760px; height: calc(100dvh - 28px); margin: 0 auto; border-radius: 16px; box-shadow: 0 12px 38px rgba(30,50,60,.22); }
+      .chat-pane { overflow: hidden; border-radius: 16px; }
+      #msgs { padding-inline: 18px; }
+      .message-bubble { max-width: min(76%, 600px); }
+      .member-sheet { width: min(100%, 520px); margin: 0 auto; border-radius: 18px 18px 0 0; }
+    }
+
+    @media (min-width: 820px) {
+      body { padding: 24px; }
+      .workspace {
+        grid-template-columns: minmax(0, 1fr) var(--rail-width);
+        width: min(1080px, 100%);
+        height: min(900px, calc(100dvh - 48px));
+        margin: auto;
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        box-shadow: 0 18px 55px rgba(28,48,58,.24);
+      }
+      .chat-pane { overflow: hidden; border-radius: 20px 0 0 20px; }
+      .participant-rail { min-height: 0; display: flex; flex-direction: column; border-radius: 0 20px 20px 0; overflow: hidden; }
+      .participant-rail .session-detail { max-height: 180px; overflow-y: auto; }
+      .participant-rail .member-list { flex: 1; padding: 6px 8px; }
+      .participant-rail .member-item { min-height: 36px; gap: 8px; padding: 2px 7px; }
+      .participant-rail .member-avatar { width: 30px; height: 30px; font-size: 14px; }
+      .participant-rail .member-role { margin-top: 0; }
+      .member-trigger { display: none; }
+      #msgs { padding: 22px 22px 34px; }
+      .message-bubble { max-width: min(74%, 600px); }
+      .sheet-backdrop { display: none !important; }
+    }
+
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --app-bg: #0c2233;
+      --surface: #102b3d;
+      --surface-raised: #15364b;
+      --chat-bg: #0d2638;
+      --header: #1b79ad;
+      --header-strong: #125a8a;
+      --header-muted: #c9eefe;
+      --text: #edf9ff;
+      --muted: #9cc0d4;
+      --line: rgba(163,218,244,.14);
+      --bubble: #153b52;
+      --bubble-shadow: rgba(0,0,0,.25);
+      --system-bg: rgba(32,110,152,.90);
+      --typing-bg: #102f43;
+      --overlay: rgba(0,10,18,.62);
+      --session-running: #2aa9e8;
+      --session-paused: #e5a63d;
+      --session-waiting: #9b83ee;
+      --session-completed: #2ecb91;
+      --session-stopped: #91a6b5;
+      --session-failed: #ef7680;
+    }
+    :root[data-theme="dark"] body { background: linear-gradient(145deg, #0c2435, #071824); }
+
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        color-scheme: dark;
+        --app-bg: #0c2233;
+        --surface: #102b3d;
+        --surface-raised: #15364b;
+        --chat-bg: #0d2638;
+        --header: #1b79ad;
+        --header-strong: #125a8a;
+        --header-muted: #c9eefe;
+        --text: #edf9ff;
+        --muted: #9cc0d4;
+        --line: rgba(163,218,244,.14);
+        --bubble: #153b52;
+        --bubble-shadow: rgba(0,0,0,.25);
+        --system-bg: rgba(32,110,152,.90);
+        --typing-bg: #102f43;
+        --overlay: rgba(0,10,18,.62);
+        --session-running: #2aa9e8;
+        --session-paused: #e5a63d;
+        --session-waiting: #9b83ee;
+        --session-completed: #2ecb91;
+        --session-stopped: #91a6b5;
+        --session-failed: #ef7680;
+      }
+      :root:not([data-theme="light"]) body { background: linear-gradient(145deg, #0c2435, #071824); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="workspace">
+    <section class="chat-pane" aria-label="Live multi-agent group chat">
+      <header class="topbar">
+        <div class="room-mark" aria-hidden="true">✦</div>
+        <div class="titlebox">
+          <div id="scene-title">Live group chat</div>
+          <div id="scene-sub">Waiting for the host…</div>
+        </div>
+        <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Theme: automatic" title="Theme: automatic">◐</button>
+        <div class="connection" role="status" aria-live="polite">
+          <span id="status-dot" class="status-dot"></span>
+          <span id="status-text">Connecting…</span>
+        </div>
+        <button id="member-trigger" class="member-trigger" type="button" aria-expanded="false" aria-controls="member-sheet" aria-label="View participants">
+          <span id="avatar-stack" class="avatar-stack" aria-hidden="true"></span>
+          <span id="member-total" class="member-total">0</span>
+        </button>
+      </header>
+      <section id="session-bar" class="session-bar" aria-label="Session progress" hidden>
+        <span class="session-state-dot" aria-hidden="true"></span>
+        <span id="session-objective" class="session-objective"></span>
+        <span id="session-progress" class="session-progress"></span>
+      </section>
+      <main id="chat-scroll" class="chat-scroll">
+        <div id="msgs" aria-live="polite" data-empty-text="💬  Waiting for the host"></div>
+      </main>
+      <div id="typing" class="typing-bar" aria-live="polite" hidden></div>
+    </section>
+
+    <aside class="participant-rail" aria-label="Participant information">
+      <div class="rail-header">
+        <div class="rail-eyebrow">Live room</div>
+        <div id="rail-title" class="rail-title">Live group chat</div>
+        <div id="rail-subtitle" class="rail-subtitle">Waiting for the host…</div>
+        <div id="rail-count" class="rail-count">0 participants</div>
+      </div>
+      <div id="rail-session" class="session-detail" hidden></div>
+      <div id="desktop-member-list" class="member-list" data-empty-text="Participants will appear here"></div>
+    </aside>
+  </div>
+
+  <div id="sheet-backdrop" class="sheet-backdrop" hidden>
+    <section id="member-sheet" class="member-sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+      <div class="sheet-handle" aria-hidden="true"></div>
+      <div class="sheet-header">
+        <div id="sheet-title" class="sheet-title">Participants</div>
+        <button id="sheet-close" class="sheet-close" type="button" aria-label="Close participant list">×</button>
+      </div>
+      <div id="sheet-session" class="session-detail" hidden></div>
+      <div id="sheet-member-list" class="member-list" data-empty-text="Participants will appear here"></div>
+    </section>
+  </div>
+
+  <script>
+    'use strict';
+
+    const KNOWN = {
+      '老周': { emoji: '🖥️', color: '#4A90D9' },
+      '小苏': { emoji: '🎨', color: '#D86BA6' },
+      '阿凯': { emoji: '✈️', color: '#F5A623' },
+      '林薇': { emoji: '🥐', color: '#34B37E' }
+    };
+    const PALETTE = [
+      { emoji: '🤖', color: '#7289A8' }, { emoji: '🐱', color: '#D47759' },
+      { emoji: '🦊', color: '#C95D62' }, { emoji: '🐻', color: '#8D6E63' },
+      { emoji: '🐰', color: '#D77E9C' }, { emoji: '🐼', color: '#5E9165' },
+      { emoji: '🐨', color: '#8068B2' }, { emoji: '🦁', color: '#B99535' },
+      { emoji: '🐸', color: '#4D9A69' }, { emoji: '🐧', color: '#526A75' }
+    ];
+
+    const TRANSLATIONS = {
+      en: {
+        chatAria: 'Live multi-agent group chat', participantAria: 'Participant information',
+        defaultTitle: 'Live group chat', defaultSubtitle: 'Waiting for the host…', liveRoom: 'Live room',
+        connecting: 'Connecting…', connected: 'Connected', reconnecting: 'Reconnecting',
+        viewMembers: total => 'View participants, ' + total + ' total',
+        participants: total => total + (total === 1 ? ' participant' : ' participants'),
+        membersTitle: 'Participants', closeMembers: 'Close participant list',
+        emptyChat: '💬  Waiting for the host', emptyMembers: 'Participants will appear here',
+        sessionAria: 'Session progress', titleSuffix: 'live', sessionRunning: 'Session in progress',
+        themes: { auto: 'automatic', light: 'light', dark: 'dark' },
+        themeLabel: value => 'Theme: ' + value + '; activate to switch',
+        memberTyping: 'Typing…', memberSpoken: 'Spoke', memberWaiting: 'Waiting to speak',
+        sessionStatus: {
+          running: 'Running', paused: 'Paused', waiting_user: 'Waiting for user', completed: 'Completed',
+          stopped: 'Stopped', partial_failure: 'Partial result'
+        },
+        sessionPhase: {
+          not_started: 'Preparing', independent: 'Independent views', challenge: 'Cross-examination',
+          synthesis: 'Synthesis'
+        },
+        progress: (current, max, phase, status) => 'Round ' + current + '/' + max + ' · ' + phase + ' · ' + status,
+        labels: {
+          objective: 'Objective', deliverable: 'Deliverable', criteria: 'Completion criteria',
+          roles: 'Participant roles', reason: 'Status note'
+        },
+        requestedModel: value => value + ' (requested)', requestedSuffix: value => ' (requested: ' + value + ')',
+        modelLine: (model, effort) => 'Model: ' + model + ' · Reasoning: ' + effort,
+        tone: value => 'Tone: ' + value, style: value => 'Style: ' + value,
+        rules: values => 'Rules: ' + values.join('; '), fallback: value => 'Fallback note: ' + value,
+        typing: names => names.length <= 2
+          ? names.join(' and ') + (names.length === 1 ? ' is typing' : ' are typing')
+          : names[0] + ', ' + names[1] + ', and ' + (names.length - 2) + ' others are typing'
+      },
+      'zh-CN': {
+        chatAria: '多智能体群聊直播', participantAria: '参与者信息',
+        defaultTitle: '群聊直播', defaultSubtitle: '等待主持人开场…', liveRoom: '直播间',
+        connecting: '连接中…', connected: '已连接', reconnecting: '重连中',
+        viewMembers: total => '查看群聊成员，共 ' + total + ' 位', participants: total => total + ' 位参与者',
+        membersTitle: '群聊成员', closeMembers: '关闭成员列表',
+        emptyChat: '💬  等待主持人开场', emptyMembers: '参与者加入后会显示在这里',
+        sessionAria: '会话进度', titleSuffix: '直播', sessionRunning: '会话进行中',
+        themes: { auto: '自动', light: '浅色', dark: '深色' },
+        themeLabel: value => '主题：' + value + '；点击切换',
+        memberTyping: '正在输入…', memberSpoken: '已发言', memberWaiting: '等待发言',
+        sessionStatus: {
+          running: '进行中', paused: '已暂停', waiting_user: '等待用户', completed: '已完成',
+          stopped: '已停止', partial_failure: '部分完成'
+        },
+        sessionPhase: {
+          not_started: '准备中', independent: '独立观点', challenge: '交叉质询', synthesis: '收敛总结'
+        },
+        progress: (current, max, phase, status) => '第 ' + current + '/' + max + ' 轮 · ' + phase + ' · ' + status,
+        labels: { objective: '目标', deliverable: '交付物', criteria: '完成条件', roles: '参与角色', reason: '状态说明' },
+        requestedModel: value => value + '（请求）', requestedSuffix: value => '（请求：' + value + '）',
+        modelLine: (model, effort) => '模型：' + model + ' · 推理：' + effort,
+        tone: value => '语气：' + value, style: value => '表达：' + value,
+        rules: values => '规则：' + values.join('；'), fallback: value => '替代说明：' + value,
+        typing: names => names.length <= 2
+          ? names.join('、') + ' 正在输入'
+          : names[0] + '、' + names[1] + ' 等 ' + names.length + ' 人正在输入'
+      }
+    };
+
+    function resolveLocale() {
+      const requested = new URLSearchParams(window.location.search).get('lang');
+      if (requested && requested.toLowerCase().startsWith('zh')) return 'zh-CN';
+      if (requested && requested.toLowerCase().startsWith('en')) return 'en';
+      return (navigator.language || '').toLowerCase().startsWith('zh') ? 'zh-CN' : 'en';
+    }
+
+    const locale = resolveLocale();
+    const T = TRANSLATIONS[locale];
+    document.documentElement.lang = locale;
+
+    const scrollEl = document.getElementById('chat-scroll');
+    const listEl = document.getElementById('msgs');
+    const typingEl = document.getElementById('typing');
+    const memberTrigger = document.getElementById('member-trigger');
+    const sheetBackdrop = document.getElementById('sheet-backdrop');
+    const sheetClose = document.getElementById('sheet-close');
+    const desktopMemberList = document.getElementById('desktop-member-list');
+    const sheetMemberList = document.getElementById('sheet-member-list');
+    const sessionBar = document.getElementById('session-bar');
+    const railSession = document.getElementById('rail-session');
+    const sheetSession = document.getElementById('sheet-session');
+    const themeToggle = document.getElementById('theme-toggle');
+    const narrowLayout = window.matchMedia('(max-width: 819px)');
+
+    const THEME_KEY = 'live-chat-theme';
+    const THEME_MODES = ['auto', 'light', 'dark'];
+    const THEME_LABELS = T.themes;
+    const THEME_ICONS = { auto: '◐', light: '☀', dark: '☾' };
+
+    let participants = [];
+    let spokenNames = new Set();
+    let memberStyles = new Map();
+    let membersSignature = '';
+    let sceneSignature = '';
+    let sessionSignature = '';
+    let count = 0;
+    let epoch = null;
+    let instanceId = null;
+    let revision = 0;
+    let lastSender = null;
+    let firstBatch = true;
+    let renderedIds = new Set();
+    let stick = true;
+    let typingNames = [];
+    let typingSignature = '';
+    let typingOffset = 0;
+    let typingTimer = null;
+    let pollTimer = null;
+    let retryDelay = 500;
+    let connectedState = null;
+
+    const SESSION_STATUS = T.sessionStatus;
+    const SESSION_PHASE = T.sessionPhase;
+
+    function applyStaticLocale() {
+      document.querySelector('.chat-pane').setAttribute('aria-label', T.chatAria);
+      document.querySelector('.participant-rail').setAttribute('aria-label', T.participantAria);
+      sessionBar.setAttribute('aria-label', T.sessionAria);
+      document.querySelector('.rail-eyebrow').textContent = T.liveRoom;
+      document.getElementById('scene-title').textContent = T.defaultTitle;
+      document.getElementById('scene-sub').textContent = T.defaultSubtitle;
+      document.getElementById('rail-title').textContent = T.defaultTitle;
+      document.getElementById('rail-subtitle').textContent = T.defaultSubtitle;
+      document.getElementById('status-text').textContent = T.connecting;
+      document.getElementById('sheet-title').textContent = T.membersTitle;
+      sheetClose.setAttribute('aria-label', T.closeMembers);
+      listEl.dataset.emptyText = T.emptyChat;
+      desktopMemberList.dataset.emptyText = T.emptyMembers;
+      sheetMemberList.dataset.emptyText = T.emptyMembers;
+      document.title = T.defaultTitle;
+    }
+
+    applyStaticLocale();
+
+    function readTheme() {
+      try {
+        const saved = localStorage.getItem(THEME_KEY);
+        return THEME_MODES.includes(saved) ? saved : 'auto';
+      } catch (error) {
+        return 'auto';
+      }
+    }
+
+    function applyTheme(mode, persist) {
+      const normalized = THEME_MODES.includes(mode) ? mode : 'auto';
+      if (normalized === 'auto') document.documentElement.removeAttribute('data-theme');
+      else document.documentElement.setAttribute('data-theme', normalized);
+      const label = T.themeLabel(THEME_LABELS[normalized]);
+      themeToggle.textContent = THEME_ICONS[normalized];
+      themeToggle.setAttribute('aria-label', label);
+      themeToggle.title = label;
+      if (persist) {
+        try { localStorage.setItem(THEME_KEY, normalized); } catch (error) { /* Keep the current-session theme. */ }
+      }
+      return normalized;
+    }
+
+    let themeMode = applyTheme(readTheme(), false);
+
+    function hashName(name) {
+      let hash = 2166136261;
+      for (const char of name) {
+        hash ^= char.codePointAt(0);
+        hash = Math.imul(hash, 16777619);
+      }
+      return hash >>> 0;
+    }
+
+    function styleFor(name) {
+      if (KNOWN[name]) return KNOWN[name];
+      if (!memberStyles.has(name)) memberStyles.set(name, PALETTE[hashName(name) % PALETTE.length]);
+      return memberStyles.get(name);
+    }
+
+    function registerMember(name) {
+      if (!name || participants.includes(name)) return false;
+      participants.push(name);
+      styleFor(name);
+      return true;
+    }
+
+    function syncParticipants(value) {
+      if (!Array.isArray(value)) return false;
+      const next = [];
+      for (const name of value) {
+        if (typeof name === 'string' && name && !next.includes(name)) next.push(name);
+      }
+      if (next.join('\u0000') === participants.join('\u0000')) return false;
+      participants = next;
+      for (const name of participants) styleFor(name);
+      return true;
+    }
+
+    function createAvatar(name, className) {
+      const info = styleFor(name);
+      const avatar = document.createElement('span');
+      avatar.className = className;
+      avatar.style.background = info.color;
+      avatar.textContent = info.emoji;
+      avatar.title = name;
+      return avatar;
+    }
+
+    function createMemberItem(name) {
+      const item = document.createElement('div');
+      const avatar = createAvatar(name, 'member-avatar');
+      const copy = document.createElement('div');
+      const label = document.createElement('div');
+      const role = document.createElement('div');
+      item.className = 'member-item';
+      copy.className = 'member-copy';
+      label.className = 'member-name';
+      label.textContent = name;
+      label.title = name;
+      role.className = 'member-role';
+      role.textContent = typingNames.includes(name)
+        ? T.memberTyping
+        : (spokenNames.has(name) ? T.memberSpoken : T.memberWaiting);
+      copy.append(label, role);
+      item.append(avatar, copy);
+      return item;
+    }
+
+    function renderMembers(force = false) {
+      const spokenSignature = [...spokenNames].sort().join('\u0000');
+      const signature = participants.join('\u0000') + '\u0001' + typingSignature + '\u0001' + spokenSignature;
+      if (!force && signature === membersSignature) return;
+      membersSignature = signature;
+
+      const stack = document.getElementById('avatar-stack');
+      stack.replaceChildren();
+      for (const name of participants.slice(0, 3).reverse()) stack.appendChild(createAvatar(name, 'stack-avatar'));
+
+      const total = participants.length;
+      document.getElementById('member-total').textContent = String(total);
+      document.getElementById('rail-count').textContent = T.participants(total);
+      memberTrigger.setAttribute('aria-label', T.viewMembers(total));
+
+      const desktopFragment = document.createDocumentFragment();
+      const sheetFragment = document.createDocumentFragment();
+      for (const name of participants) {
+        desktopFragment.appendChild(createMemberItem(name));
+        sheetFragment.appendChild(createMemberItem(name));
+      }
+      desktopMemberList.replaceChildren(desktopFragment);
+      sheetMemberList.replaceChildren(sheetFragment);
+    }
+
+    function renderScene(scene) {
+      if (!scene) return;
+      let titleText = scene.title || T.defaultTitle;
+      let subtitleText = scene.subtitle || '';
+      const rawSignature = titleText + '\u0000' + subtitleText;
+      if (rawSignature === '群聊直播\u0000等待主持人开场…'
+          || rawSignature === 'Live group chat\u0000Waiting for the host…') {
+        titleText = T.defaultTitle;
+        subtitleText = T.defaultSubtitle;
+      }
+      const signature = titleText + '\u0000' + subtitleText;
+      if (signature === sceneSignature) return;
+      sceneSignature = signature;
+      const title = document.getElementById('scene-title');
+      const subtitle = document.getElementById('scene-sub');
+      title.textContent = titleText;
+      title.title = titleText;
+      subtitle.textContent = subtitleText;
+      subtitle.title = subtitleText;
+      document.getElementById('rail-title').textContent = titleText;
+      document.getElementById('rail-subtitle').textContent = subtitleText;
+      document.title = titleText + ' · ' + T.titleSuffix;
+    }
+
+    function appendDetailLabel(container, text) {
+      const label = document.createElement('div');
+      label.className = 'session-detail-label';
+      label.textContent = text;
+      container.appendChild(label);
+    }
+
+    function appendDetailText(container, text, className = '') {
+      const copy = document.createElement('div');
+      copy.className = 'session-detail-text' + (className ? ' ' + className : '');
+      copy.textContent = text;
+      container.appendChild(copy);
+    }
+
+    function appendRoleLine(container, className, text) {
+      if (!text) return;
+      const line = document.createElement('div');
+      line.className = className;
+      line.textContent = text;
+      container.appendChild(line);
+    }
+
+    function roleModelText(session, role) {
+      const policy = session.model_policy || {};
+      const model = role.model || {};
+      const requestedRaw = model.requested || 'default';
+      const requested = requestedRaw === 'default' ? (policy.default || 'inherit') : requestedRaw;
+      const effective = model.effective || '';
+      let modelText = effective || T.requestedModel(requested);
+      if (effective && requested !== 'inherit' && effective !== requested) {
+        modelText += T.requestedSuffix(requested);
+      }
+      const effortRaw = model.reasoning_effort || 'default';
+      const effort = effortRaw === 'default'
+        ? (policy.reasoning_effort || 'inherit')
+        : effortRaw;
+      return T.modelLine(modelText, effort);
+    }
+
+    function renderSessionDetail(container, session, progressText) {
+      const fragment = document.createDocumentFragment();
+      const head = document.createElement('div');
+      const badge = document.createElement('span');
+      const progress = document.createElement('span');
+      head.className = 'session-detail-head';
+      badge.className = 'session-badge';
+      badge.dataset.status = session.status;
+      badge.textContent = SESSION_STATUS[session.status] || session.status;
+      progress.className = 'session-detail-progress';
+      progress.textContent = progressText;
+      head.append(badge, progress);
+      fragment.appendChild(head);
+      container.dataset.status = session.status;
+
+      appendDetailLabel(fragment, T.labels.objective);
+      appendDetailText(fragment, session.objective);
+      appendDetailLabel(fragment, T.labels.deliverable);
+      appendDetailText(fragment, session.deliverable);
+
+      if (session.criteria && session.criteria.length) {
+        appendDetailLabel(fragment, T.labels.criteria);
+        const list = document.createElement('ul');
+        list.className = 'session-detail-list';
+        for (const criterion of session.criteria) {
+          const item = document.createElement('li');
+          item.textContent = criterion;
+          list.appendChild(item);
+        }
+        fragment.appendChild(list);
+      }
+
+      if (session.roles && session.roles.length) {
+        appendDetailLabel(fragment, T.labels.roles);
+        const roles = document.createElement('div');
+        roles.className = 'session-role-list';
+        for (const role of session.roles) {
+          const item = document.createElement('div');
+          const name = document.createElement('div');
+          const focus = document.createElement('div');
+          item.className = 'session-role';
+          name.className = 'session-role-name';
+          name.textContent = role.name + ' · ' + role.role;
+          focus.className = 'session-role-focus';
+          focus.textContent = role.focus;
+          item.append(name, focus);
+          appendRoleLine(item, 'session-role-meta', roleModelText(session, role));
+          appendRoleLine(item, 'session-role-setting', role.tone ? T.tone(role.tone) : '');
+          appendRoleLine(item, 'session-role-setting', role.style ? T.style(role.style) : '');
+          if (role.instructions && role.instructions.length) {
+            appendRoleLine(item, 'session-role-setting', T.rules(role.instructions));
+          }
+          const fallbackReason = role.model && role.model.fallback_reason;
+          appendRoleLine(
+            item,
+            'session-role-setting session-role-fallback',
+            fallbackReason ? T.fallback(fallbackReason) : '',
+          );
+          roles.appendChild(item);
+        }
+        fragment.appendChild(roles);
+      }
+
+      if (session.stop_reason) {
+        appendDetailLabel(fragment, T.labels.reason);
+        appendDetailText(fragment, session.stop_reason, 'session-reason');
+      }
+      container.replaceChildren(fragment);
+    }
+
+    function renderSession(session) {
+      const value = session && session.status ? session : { status: 'idle' };
+      const signature = JSON.stringify(value);
+      if (signature === sessionSignature) return;
+      sessionSignature = signature;
+      if (value.status === 'idle') {
+        sessionBar.hidden = true;
+        railSession.hidden = true;
+        sheetSession.hidden = true;
+        railSession.replaceChildren();
+        sheetSession.replaceChildren();
+        return;
+      }
+
+      const round = value.round || { current: 0, max: 3, phase: 'not_started' };
+      const progressText = T.progress(
+        round.current,
+        round.max,
+        SESSION_PHASE[round.phase] || round.phase,
+        SESSION_STATUS[value.status] || value.status,
+      );
+      sessionBar.hidden = false;
+      sessionBar.dataset.status = value.status;
+      const objective = document.getElementById('session-objective');
+      objective.textContent = value.objective || value.deliverable || T.sessionRunning;
+      objective.title = value.objective || '';
+      document.getElementById('session-progress').textContent = progressText;
+      railSession.hidden = false;
+      sheetSession.hidden = false;
+      renderSessionDetail(railSession, value, progressText);
+      renderSessionDetail(sheetSession, value, progressText);
+    }
+
+    function createMessageNode(message, animate) {
+      if (message.sys) {
+        const item = document.createElement('div');
+        item.className = 'system-message' + (animate ? ' round-enter' : '');
+        item.textContent = message.text;
+        lastSender = null;
+        return item;
+      }
+
+      registerMember(message.sender);
+      spokenNames.add(message.sender);
+      const info = styleFor(message.sender);
+      const row = document.createElement('div');
+      const avatar = createAvatar(message.sender, 'avatar');
+      const bubble = document.createElement('div');
+      const meta = document.createElement('div');
+      const name = document.createElement('span');
+      const time = document.createElement('span');
+      const text = document.createElement('div');
+      row.className = 'message-row' + (message.sender === lastSender ? ' same' : '') + (animate ? ' enter' : '');
+      bubble.className = 'message-bubble';
+      meta.className = 'message-meta';
+      name.className = 'sender-name';
+      name.style.color = info.color;
+      name.textContent = message.sender;
+      name.title = message.sender;
+      time.className = 'message-time';
+      time.textContent = (message.ts || '').slice(0, 5);
+      text.className = 'message-text';
+      text.textContent = message.text;
+      meta.append(name, time);
+      bubble.append(meta, text);
+      row.append(avatar, bubble);
+      lastSender = message.sender;
+      return row;
+    }
+
+    function appendMessageBatch(messages, batchEpoch, animate) {
+      const accepted = [];
+      let expected = count + 1;
+      for (const message of messages) {
+        const key = batchEpoch + ':' + message.id;
+        if (renderedIds.has(key)) continue;
+        if (message.id !== expected) return false;
+        accepted.push({ message, key });
+        expected += 1;
+      }
+      if (!accepted.length) return true;
+
+      const fragment = document.createDocumentFragment();
+      for (const entry of accepted) fragment.appendChild(createMessageNode(entry.message, animate));
+      listEl.appendChild(fragment);
+      for (const entry of accepted) renderedIds.add(entry.key);
+      count += accepted.length;
+      renderMembers();
+      if (stick) scrollEl.scrollTop = scrollEl.scrollHeight;
+      return true;
+    }
+
+    function drawTyping() {
+      typingEl.replaceChildren();
+      const first = typingNames[typingOffset % typingNames.length];
+      typingEl.appendChild(createAvatar(first, 'typing-avatar'));
+      const copy = document.createElement('span');
+      copy.className = 'typing-copy';
+      const ordered = typingNames.length <= 2
+        ? typingNames
+        : [first, typingNames[(typingOffset + 1) % typingNames.length], ...typingNames.slice(2)];
+      copy.textContent = T.typing(ordered);
+      const dots = document.createElement('span');
+      dots.className = 'typing-dots';
+      dots.setAttribute('aria-hidden', 'true');
+      for (let index = 0; index < 3; index += 1) dots.appendChild(document.createElement('i'));
+      typingEl.append(copy, dots);
+    }
+
+    function renderTyping(typing) {
+      const next = Object.keys(typing || {}).filter(name => typing[name]);
+      const signature = [...next].sort().join('\u0000');
+      if (signature === typingSignature) return;
+      typingSignature = signature;
+      typingOffset = 0;
+      typingNames = next;
+      let memberChanged = false;
+      for (const name of next) memberChanged = registerMember(name) || memberChanged;
+
+      if (typingTimer) clearInterval(typingTimer);
+      typingTimer = null;
+      if (!typingNames.length) {
+        typingEl.hidden = true;
+      } else {
+        typingEl.hidden = false;
+        drawTyping();
+        if (typingNames.length > 2) {
+          typingTimer = setInterval(() => {
+            typingOffset = (typingOffset + 1) % typingNames.length;
+            drawTyping();
+          }, 2000);
+        }
+      }
+      renderMembers(memberChanged);
+    }
+
+    function setStatus(connected) {
+      if (connected === connectedState) return;
+      connectedState = connected;
+      document.getElementById('status-dot').className = 'status-dot' + (connected ? ' ok' : '');
+      document.getElementById('status-text').textContent = connected ? T.connected : T.reconnecting;
+    }
+
+    function clearDerived() {
+      listEl.replaceChildren();
+      typingEl.replaceChildren();
+      typingEl.hidden = true;
+      if (typingTimer) clearInterval(typingTimer);
+      typingTimer = null;
+      typingNames = [];
+      typingSignature = '';
+      participants = [];
+      spokenNames = new Set();
+      memberStyles = new Map();
+      membersSignature = '';
+      sessionSignature = '';
+      count = 0;
+      lastSender = null;
+      firstBatch = true;
+      renderedIds = new Set();
+      renderMembers(true);
+      renderSession(null);
+    }
+
+    function openMemberSheet() {
+      if (!narrowLayout.matches) return;
+      sheetBackdrop.hidden = false;
+      memberTrigger.setAttribute('aria-expanded', 'true');
+      sheetClose.focus();
+    }
+
+    function closeMemberSheet() {
+      if (sheetBackdrop.hidden) return;
+      sheetBackdrop.hidden = true;
+      memberTrigger.setAttribute('aria-expanded', 'false');
+      memberTrigger.focus();
+    }
+
+    function schedulePoll(delay) {
+      if (pollTimer) clearTimeout(pollTimer);
+      pollTimer = setTimeout(poll, delay);
+    }
+
+    async function poll() {
+      pollTimer = null;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 4000);
+      let nextDelay = 500;
+      try {
+        const response = await fetch('/api/state?since=' + count, { cache: 'no-store', signal: controller.signal });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        const data = await response.json();
+        setStatus(true);
+        retryDelay = 500;
+
+        const identityChanged = instanceId !== null && data.instance_id !== instanceId;
+        const epochChanged = epoch !== null && data.epoch !== epoch;
+        if (identityChanged || epochChanged || data.total < count) {
+          clearDerived();
+          instanceId = data.instance_id;
+          epoch = data.epoch;
+          revision = data.revision;
+          nextDelay = 0;
+          return;
+        }
+        if (instanceId === null) instanceId = data.instance_id;
+        if (epoch === null) epoch = data.epoch;
+        renderScene(data.scene);
+        renderSession(data.session);
+        const participantsChanged = syncParticipants(data.participants);
+        if (!appendMessageBatch(data.messages, data.epoch, !firstBatch)) {
+          clearDerived();
+          instanceId = data.instance_id;
+          epoch = data.epoch;
+          nextDelay = 0;
+          return;
+        }
+        revision = data.revision;
+        firstBatch = false;
+        renderTyping(data.typing);
+        renderMembers(participantsChanged);
+      } catch (error) {
+        setStatus(false);
+        nextDelay = retryDelay;
+        retryDelay = Math.min(retryDelay * 2, 5000);
+      } finally {
+        clearTimeout(timeout);
+        schedulePoll(nextDelay);
+      }
+    }
+
+    scrollEl.addEventListener('scroll', () => {
+      stick = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < 64;
+    });
+    memberTrigger.addEventListener('click', openMemberSheet);
+    themeToggle.addEventListener('click', () => {
+      const next = THEME_MODES[(THEME_MODES.indexOf(themeMode) + 1) % THEME_MODES.length];
+      themeMode = applyTheme(next, true);
+    });
+    sheetClose.addEventListener('click', closeMemberSheet);
+    sheetBackdrop.addEventListener('click', event => {
+      if (event.target === sheetBackdrop) closeMemberSheet();
+    });
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape') closeMemberSheet();
+    });
+    narrowLayout.addEventListener('change', event => {
+      if (!event.matches) closeMemberSheet();
+    });
+
+    renderMembers(true);
+    schedulePoll(0);
+  </script>
+</body>
+</html>

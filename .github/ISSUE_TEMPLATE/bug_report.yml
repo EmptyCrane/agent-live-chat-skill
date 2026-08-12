@@ -1,0 +1,36 @@
+name: Bug report
+description: Report a reproducible problem in the Skill, service, installer, or UI
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: dropdown
+    id: host
+    attributes:
+      label: Host
+      options: [OpenAI Codex, Claude Code, GitHub Copilot, Manual CLI, Other]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: 0.1.0-beta.4
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs
+      description: Remove chat content, local paths, credentials, and personal data.

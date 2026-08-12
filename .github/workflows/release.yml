@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npx playwright install --with-deps chromium
+      - run: python tools/audit_release.py --expected-git-name "${{ github.repository_owner }}" --require-noreply --single-root
+      - name: Build Skill archive
+        run: python tools/package_release.py --version "${GITHUB_REF_NAME#v}" --output-dir dist
+      - name: Start isolated visual service
+        run: |
+          mkdir -p "$RUNNER_TEMP/live-chat-release-state"
+          python skill/live-chat/scripts/live_chat.py --state-dir "$RUNNER_TEMP/live-chat-release-state" --json start --port 0 --no-legacy > "$RUNNER_TEMP/release-instance.json"
+          python -c "import json,os,pathlib; data=json.loads(pathlib.Path(os.environ['RUNNER_TEMP']).joinpath('release-instance.json').read_text()); pathlib.Path(os.environ['GITHUB_ENV']).open('a').write('LIVE_CHAT_RELEASE_URL='+data['url']+'\n')"
+      - name: Generate localized release screenshots
+        run: node tests/visual_qa.js "$LIVE_CHAT_RELEASE_URL" screenshots
+      - name: Stop isolated visual service
+        if: always()
+        run: python skill/live-chat/scripts/live_chat.py --state-dir "$RUNNER_TEMP/live-chat-release-state" stop || true
+      - name: Audit and stage documentation screenshots
+        run: |
+          python tools/audit_release.py --file screenshots/live-chat-en.png --file screenshots/live-chat-zh-CN.png
+          cp screenshots/live-chat-en.png screenshots/live-chat-zh-CN.png dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: live-chat-skill
+          path: dist/*
+      - uses: softprops/action-gh-release@v2
+        with:
+          prerelease: ${{ contains(github.ref_name, 'beta') }}
+          generate_release_notes: true
+          files: dist/*

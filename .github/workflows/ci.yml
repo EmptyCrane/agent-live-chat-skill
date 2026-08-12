@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Python ${{ matrix.python }} / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      # GitHub's hosted macOS images currently close Python loopback listeners
+      # across processes (actions/runner-images#14409). Keep all other macOS
+      # coverage while Linux validates the POSIX detached lifecycle.
+      LIVE_CHAT_SKIP_PROCESS_TESTS: ${{ startsWith(matrix.os, 'macos-') && '1' || '0' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15, windows-latest]
+        python: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - run: python -m pip install --requirement requirements-dev.txt
+      - run: python -B -m unittest discover -s tests -p "test_*.py" -v
+      - run: python -B tools/audit_release.py --expected-git-name "${{ github.repository_owner }}" --require-noreply --single-root
+      - run: python -B tools/package_release.py --version ci --output-dir dist
+      - name: Validate Agent Skill
+        run: python -c "import pathlib,yaml; p=pathlib.Path('skill/live-chat/SKILL.md'); t=p.read_text(encoding='utf-8'); parts=t.split('---',2); assert len(parts)==3; data=yaml.safe_load(parts[1]); assert data['name']=='live-chat' and data['description']"
+
+  visual:
+    name: Chromium visual checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npx playwright install --with-deps chromium
+      - name: Start isolated service
+        run: |
+          mkdir -p "$RUNNER_TEMP/live-chat-state"
+          python skill/live-chat/scripts/live_chat.py --state-dir "$RUNNER_TEMP/live-chat-state" --json start --port 0 --no-legacy > "$RUNNER_TEMP/instance.json"
+          python -c "import json,os,pathlib; data=json.loads(pathlib.Path(os.environ['RUNNER_TEMP']).joinpath('instance.json').read_text()); pathlib.Path(os.environ['GITHUB_ENV']).open('a').write('LIVE_CHAT_TEST_URL='+data['url']+'\n')"
+      - run: node tests/visual_qa.js "$LIVE_CHAT_TEST_URL" screenshots
+      - name: Stop isolated service
+        if: always()
+        run: python skill/live-chat/scripts/live_chat.py --state-dir "$RUNNER_TEMP/live-chat-state" stop || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: visual-screenshots
+          path: screenshots
+          if-no-files-found: warn

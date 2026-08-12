@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+node_modules/
+dist/
+screenshots/
+docs/images/*.png
+*.log
+state.json
+instance.json
+messages.jsonl
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
