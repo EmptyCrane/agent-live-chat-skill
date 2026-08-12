@@ -1,3 +1,5 @@
+import contextlib
+import io
 import json
 import os
 import subprocess
@@ -5,15 +7,44 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ROOT = REPO_ROOT / "skill" / "live-chat"
 ENTRY = ROOT / "scripts" / "live_chat.py"
+sys.path.insert(0, str(ROOT / "scripts"))
+
+from live_chat_core import cli  # noqa: E402
+
 SKIP_PROCESS_TESTS = os.environ.get("LIVE_CHAT_SKIP_PROCESS_TESTS") == "1"
 PROCESS_SKIP_REASON = (
     "hosted macOS runners currently close cross-process Python loopback listeners "
     "(actions/runner-images#14409)"
 )
+
+
+class FakeResponse:
+    def __init__(self, status, reason, value):
+        self.status = status
+        self.reason = reason
+        self._body = json.dumps(value).encode("utf-8")
+
+    def read(self):
+        return self._body
+
+
+class FakeConnection:
+    def __init__(self, responses):
+        self.responses = iter(responses)
+
+    def request(self, method, target, body=None, headers=None):
+        pass
+
+    def getresponse(self):
+        return next(self.responses)
+
+    def close(self):
+        pass
 
 
 class CliTests(unittest.TestCase):
@@ -85,6 +116,70 @@ class CliTests(unittest.TestCase):
                 % (result.returncode, result.stdout, result.stderr, server_log)
             )
         return result
+
+    def test_http_error_shapes_are_normalized(self):
+        cases = [
+            ({"error": {"message": "structured failure"}}, "structured failure"),
+            ({"error": "not found"}, "not found"),
+            ({}, "418 Teapot"),
+            ({"error": ["bad"]}, "418 Teapot"),
+            ({"error": 7}, "418 Teapot"),
+            ({"error": None}, "418 Teapot"),
+        ]
+        for payload, expected in cases:
+            with self.subTest(payload=payload):
+                connection = FakeConnection([FakeResponse(418, "Teapot", payload)])
+                with patch.object(cli, "HTTPConnection", return_value=connection):
+                    with self.assertRaises(cli.CliError) as caught:
+                        cli._request_json("http://127.0.0.1:8765/api/test")
+                self.assertIn(expected, str(caught.exception))
+
+    def test_pre_beta_string_error_has_no_traceback(self):
+        connection = FakeConnection([
+            FakeResponse(404, "Not Found", {"error": "not found"}),
+        ])
+        stderr = io.StringIO()
+        with patch.object(cli, "HTTPConnection", return_value=connection):
+            with contextlib.redirect_stderr(stderr):
+                result = cli.main(["--url", "http://127.0.0.1:8765", "sessions", "list"])
+        self.assertNotEqual(result, 0)
+        self.assertIn("not found", stderr.getvalue())
+        self.assertNotIn("Traceback", stderr.getvalue())
+        self.assertNotIn("AttributeError", stderr.getvalue())
+
+    def test_beta4_feature_probe_still_reports_unsupported(self):
+        health = {
+            "service": "live-chat",
+            "protocol_version": cli.PROTOCOL_VERSION,
+            "features": [],
+        }
+        connection = FakeConnection([FakeResponse(200, "OK", health)])
+        stderr = io.StringIO()
+        with patch.object(cli, "HTTPConnection", return_value=connection):
+            with contextlib.redirect_stderr(stderr):
+                result = cli.main(["--url", "http://127.0.0.1:8765", "sessions", "list"])
+        self.assertNotEqual(result, 0)
+        self.assertIn("unsupported_feature", stderr.getvalue())
+
+    def test_beta5_success_response_is_unchanged(self):
+        health = {
+            "service": "live-chat",
+            "protocol_version": cli.PROTOCOL_VERSION,
+            "features": ["sessions"],
+        }
+        catalog = {"active_session_id": "session-1", "sessions": []}
+        connection = FakeConnection([
+            FakeResponse(200, "OK", health),
+            FakeResponse(200, "OK", catalog),
+        ])
+        stdout = io.StringIO()
+        with patch.object(cli, "HTTPConnection", return_value=connection):
+            with contextlib.redirect_stdout(stdout):
+                result = cli.main([
+                    "--url", "http://127.0.0.1:8765", "--json", "sessions", "list"
+                ])
+        self.assertEqual(result, 0)
+        self.assertEqual(json.loads(stdout.getvalue()), catalog)
 
     @unittest.skipIf(SKIP_PROCESS_TESTS, PROCESS_SKIP_REASON)
     def test_full_lifecycle_and_stdin_message(self):

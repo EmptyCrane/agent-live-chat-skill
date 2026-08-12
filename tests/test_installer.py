@@ -25,10 +25,12 @@ class InstallerTests(unittest.TestCase):
     def test_dry_run_does_not_write_and_maps_all_hosts(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            for host in ("codex", "claude", "copilot"):
+            for host in ("codex", "agents", "claude", "copilot"):
                 result = installer.install(host, "user", root, root / "project")
                 self.assertEqual(result["action"], "install")
                 self.assertFalse(Path(result["destination"]).exists())
+                self.assertFalse(Path(result["backup"]).exists())
+                self.assertEqual(Path(result["backup"]).parent.name, "skill-backups")
             self.assertEqual(
                 Path(installer.install("codex", "user", root, root)["destination"]).resolve(),
                 (root / ".codex" / "skills" / "live-chat").resolve(),
@@ -57,6 +59,55 @@ class InstallerTests(unittest.TestCase):
             )
             self.assertTrue(Path(result["backup"]).is_dir())
             self.assertTrue(destination.is_dir())
+            self.assertFalse(
+                Path(result["backup"]).is_relative_to(destination.parent)
+            )
+            self.assertEqual(
+                installer._tree_hashes(Path(result["backup"])),
+                installer._tree_hashes(destination),
+            )
+
+    def test_user_backups_are_outside_every_skill_discovery_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for host in ("codex", "agents", "claude", "copilot"):
+                with self.subTest(host=host):
+                    first = installer.install(host, "user", root, root / "project", apply=True)
+                    result = installer.install(
+                        host,
+                        "user",
+                        root,
+                        root / "project",
+                        apply=True,
+                        replace=True,
+                        now=datetime(2026, 8, 12, tzinfo=timezone.utc),
+                    )
+                    destination = Path(first["destination"])
+                    backup = Path(result["backup"])
+                    self.assertFalse(backup.is_relative_to(destination.parent))
+                    self.assertEqual(backup.parent, destination.parent.parent / "skill-backups")
+
+    def test_project_backups_are_outside_host_skill_roots(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for host in ("codex", "agents", "claude", "copilot"):
+                with self.subTest(host=host):
+                    project = root / host
+                    project.mkdir()
+                    first = installer.install(host, "project", project / "home", project, apply=True)
+                    result = installer.install(
+                        host,
+                        "project",
+                        project / "home",
+                        project,
+                        apply=True,
+                        replace=True,
+                        now=datetime(2026, 8, 13, tzinfo=timezone.utc),
+                    )
+                    destination = Path(first["destination"])
+                    backup = Path(result["backup"])
+                    self.assertFalse(backup.is_relative_to(destination.parent))
+                    self.assertEqual(backup.parent, destination.parent.parent / "skill-backups")
 
     def test_project_scope_uses_host_specific_directory(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -76,6 +127,50 @@ class InstallerTests(unittest.TestCase):
             destination = root / ".agents" / "skills" / "live-chat"
             self.assertFalse(destination.exists())
             self.assertEqual(list(destination.parent.glob(".live-chat.install-*")), [])
+
+    def test_post_install_doctor_failure_restores_old_tree_and_preserves_backup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = installer.install("agents", "user", root, root, apply=True)
+            destination = Path(first["destination"])
+            marker = destination / "local-marker.txt"
+            marker.write_text("old installation\n", encoding="utf-8")
+            old_hashes = installer._tree_hashes(destination)
+            with patch.object(installer, "_post_install_doctor", side_effect=installer.InstallError("doctor failed")):
+                with self.assertRaises(installer.InstallError):
+                    installer.install(
+                        "agents",
+                        "user",
+                        root,
+                        root,
+                        apply=True,
+                        replace=True,
+                        now=datetime(2026, 8, 14, tzinfo=timezone.utc),
+                    )
+            backup = root / ".agents" / "skill-backups" / "live-chat-20260814T000000Z"
+            self.assertEqual(installer._tree_hashes(destination), old_hashes)
+            self.assertEqual(installer._tree_hashes(backup), old_hashes)
+            self.assertTrue(marker.is_file())
+
+    def test_existing_backup_target_fails_without_changing_destination(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = installer.install("claude", "user", root, root, apply=True)
+            destination = Path(first["destination"])
+            old_hashes = installer._tree_hashes(destination)
+            backup = root / ".claude" / "skill-backups" / "live-chat-20260815T000000Z"
+            backup.mkdir(parents=True)
+            with self.assertRaises(installer.InstallError):
+                installer.install(
+                    "claude",
+                    "user",
+                    root,
+                    root,
+                    apply=True,
+                    replace=True,
+                    now=datetime(2026, 8, 15, tzinfo=timezone.utc),
+                )
+            self.assertEqual(installer._tree_hashes(destination), old_hashes)
 
     def test_auto_detection_prefers_existing_host_roots(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -136,6 +231,25 @@ class InstallerTests(unittest.TestCase):
                 self.skipTest("symbolic links are unavailable")
             with self.assertRaises(installer.InstallError):
                 installer._assert_safe_destination(link / "live-chat", link)
+
+    def test_backup_symlink_or_reparse_point_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = installer.install("agents", "user", root, root, apply=True)
+            destination = Path(first["destination"])
+            backup_root = root / ".agents" / "skill-backups"
+            old_hashes = installer._tree_hashes(destination)
+            original = installer._is_link_like
+
+            def mark_backup_root(path):
+                return Path(path).name == backup_root.name or original(path)
+
+            with patch.object(installer, "_is_link_like", side_effect=mark_backup_root):
+                with self.assertRaises(installer.InstallError):
+                    installer.install(
+                        "agents", "user", root, root, apply=True, replace=True
+                    )
+            self.assertEqual(installer._tree_hashes(destination), old_hashes)
 
     def test_release_archive_contains_only_skill_tree(self):
         with tempfile.TemporaryDirectory() as directory:

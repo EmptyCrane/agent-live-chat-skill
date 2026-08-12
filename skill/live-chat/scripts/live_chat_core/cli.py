@@ -41,6 +41,19 @@ class CliError(RuntimeError):
     pass
 
 
+def _http_error_message(value, status, reason):
+    """Return a stable message for structured and legacy HTTP errors."""
+    if isinstance(value, dict):
+        error = value.get("error")
+        if isinstance(error, dict):
+            message = error.get("message")
+            if isinstance(message, str) and message:
+                return message
+        elif isinstance(error, str) and error:
+            return error
+    return "%d %s" % (status, reason)
+
+
 def _atomic_json(path, value):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -93,7 +106,7 @@ def _request_json(url, method="GET", payload=None, timeout=3):
         raw = response.read()
         value = json.loads(raw.decode("utf-8"))
         if response.status >= 400:
-            message = value.get("error", {}).get("message", "%d %s" % (response.status, response.reason))
+            message = _http_error_message(value, response.status, response.reason)
             raise CliError("server rejected the request: %s" % message)
         return value
     except CliError:
@@ -308,8 +321,12 @@ def _status(args):
 
 def _feature_url(args, feature):
     url = _resolve_url(args)
-    health = _health(url)
-    if not health or feature not in health.get("features", []):
+    health = _request_json(url.rstrip("/") + "/api/health")
+    if (
+        health.get("service") != SERVICE_NAME
+        or health.get("protocol_version") != PROTOCOL_VERSION
+        or feature not in health.get("features", [])
+    ):
         raise CliError("unsupported_feature: the running service does not support %s" % feature)
     return url
 

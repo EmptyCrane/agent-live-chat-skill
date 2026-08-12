@@ -43,6 +43,8 @@ python <skill>/scripts/live_chat.py --json start
 
 Parse the returned `url`. If a built-in browser tool is available, open that URL once for the session without setting panel size, viewport, zoom, or global layout. Otherwise return a clickable URL. Never invoke the system default browser.
 
+In Codex, actively inspect the current callable tools, including delayed tools, for the exact name `codex_app__open_in_codex`; do not rely only on the initial tool summary. Follow the exact call and fallback sequence in `references/hosts.md`. Do not consider the chat display started until the built-in browser call succeeds or you explicitly report why it is unavailable or failed and provide the clickable URL. Headless browser QA does not satisfy this host-opening step.
+
 Create a new persistent conversation when the request is unrelated to the active one:
 
 ```text

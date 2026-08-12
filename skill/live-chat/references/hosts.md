@@ -10,8 +10,20 @@ The core Skill follows the open Agent Skills directory format. Host features are
 - Run `doctor --host codex` after installation. If both Codex and `.agents` copies are discovered, disable one exact `SKILL.md` path in Codex configuration rather than deleting another host's copy.
 - Use real subagent tools when present.
 - Treat the callable subagent tool schema as authoritative for model and reasoning overrides. Pass them only when accepted by the current tool. A model listed in the OpenAI API catalog is not automatically available in the current Codex surface.
-- If `codex_app__open_in_codex` is available, open the returned localhost URL once with right-side placement and no width, height, zoom, or viewport arguments.
-- If the browser tool is absent or fails, return the URL. Do not invoke an external browser.
+- After `start` returns a localhost URL, actively inspect all currently callable tools, including delayed tools that were absent from the initial tool summary. Search for the exact name `codex_app__open_in_codex`.
+- When the tool exists, call it exactly once for the session:
+
+  ```text
+  codex_app__open_in_codex({
+    target: {type: "browser", url: "<start returned URL>"},
+    placement: "right"
+  })
+  ```
+
+- Do not pass width, height, viewport, zoom, or global layout arguments.
+- Do not infer that the tool is unavailable merely because it was not initially summarized. Only fall back after the callable-tool check proves it absent or after the call fails.
+- On fallback, return the clickable URL and state the exact absence or failure. Do not claim the chat display is started until the tool call succeeds or this explicit fallback is complete.
+- Never invoke the system default browser. Headless Chrome or Playwright may supplement visual QA but never replaces Codex built-in-browser acceptance.
 - `agents/openai.yaml` is optional Codex UI metadata and is ignored by other hosts.
 
 ## Claude Code

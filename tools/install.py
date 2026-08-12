@@ -48,9 +48,33 @@ def _is_relative_to(path, parent):
         return False
 
 
-def _assert_plain_tree(root):
+def _path_present(path):
+    return path.exists() or _is_link_like(path)
+
+
+def _assert_component_chain(path, boundary, label):
+    current = path.expanduser().absolute()
+    boundary = boundary.expanduser().absolute()
+    if not _is_relative_to(current, boundary):
+        raise InstallError("%s escapes its boundary: %s" % (label, current))
+    while True:
+        if _is_link_like(current):
+            raise InstallError("%s contains a symbolic link or reparse point: %s" % (label, current))
+        if current == boundary:
+            break
+        current = current.parent
+
+
+def _assert_hashable_tree(root, label):
     if not root.is_dir() or _is_link_like(root):
-        raise InstallError("skill source must be a real directory: %s" % root)
+        raise InstallError("%s must be a real directory: %s" % (label, root))
+    for item in root.rglob("*"):
+        if _is_link_like(item):
+            raise InstallError("%s contains a symbolic link or reparse point: %s" % (label, item))
+
+
+def _assert_plain_tree(root):
+    _assert_hashable_tree(root, "skill source")
     entries = {item.name for item in root.iterdir()}
     if entries != RUNTIME_ENTRIES:
         raise InstallError("skill source entries do not match the release whitelist")
@@ -66,20 +90,36 @@ def _assert_safe_destination(destination, base):
     raw_destination = destination.expanduser().absolute()
     if not _is_relative_to(raw_destination, raw_base) or raw_destination == raw_base:
         raise InstallError("destination escapes its host skill root: %s" % raw_destination)
-    current = raw_destination
-    while current != raw_base:
-        # Check link metadata directly: Path.exists() is false for a dangling
-        # symlink, but dangling links are unsafe destination components too.
-        if _is_link_like(current):
-            raise InstallError("destination contains a symbolic link: %s" % current)
-        current = current.parent
-    if _is_link_like(raw_base):
-        raise InstallError("host skill root cannot be a symbolic link: %s" % raw_base)
+    _assert_component_chain(raw_destination, raw_base, "destination")
     resolved_base = raw_base.resolve()
     resolved_destination = raw_destination.resolve(strict=False)
     if not _is_relative_to(resolved_destination, resolved_base):
         raise InstallError("resolved destination escapes its host skill root")
     return resolved_destination, resolved_base
+
+
+def _backup_root_for(skill_root):
+    return skill_root.parent / "skill-backups"
+
+
+def _assert_safe_backup(backup, backup_root, config_root):
+    raw_config = config_root.expanduser().absolute()
+    raw_root = backup_root.expanduser().absolute()
+    raw_backup = backup.expanduser().absolute()
+    if raw_root == raw_config or not _is_relative_to(raw_root, raw_config):
+        raise InstallError("backup root escapes its host configuration directory")
+    if raw_backup == raw_root or not _is_relative_to(raw_backup, raw_root):
+        raise InstallError("backup path escapes its backup root")
+    _assert_component_chain(raw_root, raw_config, "backup root")
+    _assert_component_chain(raw_backup, raw_root, "backup path")
+    resolved_config = raw_config.resolve()
+    resolved_root = raw_root.resolve(strict=False)
+    resolved_backup = raw_backup.resolve(strict=False)
+    if not _is_relative_to(resolved_root, resolved_config):
+        raise InstallError("resolved backup root escapes its host configuration directory")
+    if not _is_relative_to(resolved_backup, resolved_root):
+        raise InstallError("resolved backup path escapes its backup root")
+    return resolved_backup, resolved_root, resolved_config
 
 
 def _detected_hosts(scope, home, project_root):
@@ -98,6 +138,7 @@ def _detected_hosts(scope, home, project_root):
 
 
 def _tree_hashes(root):
+    _assert_hashable_tree(Path(root), "hash source")
     values = {}
     for path in sorted(item for item in Path(root).rglob("*") if item.is_file()):
         relative = path.relative_to(root).as_posix()
@@ -163,40 +204,93 @@ def install(host, scope, home, project_root, apply=False, replace=False, now=Non
     _assert_plain_tree(SOURCE)
     base = skill_root_for(host, scope, home, project_root, os.environ)
     destination, base = _assert_safe_destination(base / SKILL_NAME, base)
-    result = {"host": host, "scope": scope, "destination": str(destination), "action": "install"}
-    if destination.exists():
+    config_root = base.parent
+    backup_root = _backup_root_for(base)
+    stamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%SZ")
+    backup = backup_root / ("%s-%s" % (SKILL_NAME, stamp))
+    backup, backup_root, config_root = _assert_safe_backup(
+        backup, backup_root, config_root
+    )
+    result = {
+        "host": host,
+        "scope": scope,
+        "destination": str(destination),
+        "backup": str(backup),
+        "action": "install",
+    }
+    replacing = _path_present(destination)
+    if replacing:
         if _is_link_like(destination) or not destination.is_dir():
             raise InstallError("existing destination is not a real directory: %s" % destination)
         if not replace:
             raise InstallError("destination already exists; use --replace to back it up")
-        stamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%SZ")
-        backup = destination.with_name("%s.backup-%s" % (SKILL_NAME, stamp))
-        if backup.exists():
+        _assert_hashable_tree(destination, "existing destination")
+        if _path_present(backup):
             raise InstallError("backup path already exists: %s" % backup)
-        result.update({"action": "replace", "backup": str(backup)})
+        result["action"] = "replace"
     if not apply:
         return result
+    config_root.mkdir(parents=True, exist_ok=True)
     base.mkdir(parents=True, exist_ok=True)
-    staging = base / (".%s.install-%s" % (SKILL_NAME, uuid.uuid4().hex))
+    _assert_safe_destination(destination, base)
+    _assert_safe_backup(backup, backup_root, config_root)
+    source_hashes = _tree_hashes(SOURCE)
+    old_hashes = _tree_hashes(destination) if replacing else None
+    staging = config_root / (".%s.install-%s" % (SKILL_NAME, uuid.uuid4().hex))
+    restore_staging = config_root / (".%s.restore-%s" % (SKILL_NAME, uuid.uuid4().hex))
+    _assert_component_chain(staging, config_root, "staging path")
+    _assert_component_chain(restore_staging, config_root, "restore staging path")
     try:
         shutil.copytree(SOURCE, staging, copy_function=shutil.copy2)
-        if _tree_hashes(SOURCE) != _tree_hashes(staging):
+        if source_hashes != _tree_hashes(staging):
             raise InstallError("staged installation hash verification failed")
         _verify_runtime(staging)
         if result["action"] == "replace":
-            destination.rename(Path(result["backup"]))
+            backup_root.mkdir(parents=True, exist_ok=True)
+            _assert_safe_backup(backup, backup_root, config_root)
+            if _path_present(backup):
+                raise InstallError("backup path already exists: %s" % backup)
+            destination.rename(backup)
+            if old_hashes != _tree_hashes(backup):
+                raise InstallError("backup hash verification failed")
         staging.rename(destination)
-        if _tree_hashes(SOURCE) != _tree_hashes(destination):
+        if source_hashes != _tree_hashes(destination):
             raise InstallError("installed file hash verification failed")
         result["doctor"] = _post_install_doctor(destination)
-    except Exception:
-        if staging.exists():
+    except Exception as exc:
+        if _path_present(staging):
+            _assert_component_chain(staging, config_root, "staging cleanup")
             shutil.rmtree(staging)
-        if destination.exists():
-            if result["action"] == "install" or Path(result.get("backup", "")).exists():
+        if result["action"] == "install":
+            if _path_present(destination):
+                if _tree_hashes(destination) != source_hashes:
+                    raise InstallError(
+                        "installation failed and candidate hash changed; preserving destination"
+                    ) from exc
                 shutil.rmtree(destination)
-        if result["action"] == "replace" and not destination.exists() and Path(result["backup"]).exists():
-            Path(result["backup"]).rename(destination)
+            raise
+        if not _path_present(backup):
+            raise InstallError("replacement failed before a recoverable backup was created") from exc
+        if _tree_hashes(backup) != old_hashes:
+            raise InstallError("replacement failed and backup hash verification failed; backup preserved") from exc
+        if _path_present(destination):
+            if _tree_hashes(destination) != source_hashes:
+                raise InstallError(
+                    "replacement failed and candidate hash changed; backup preserved"
+                ) from exc
+            shutil.rmtree(destination)
+        try:
+            shutil.copytree(backup, restore_staging, copy_function=shutil.copy2)
+            if _tree_hashes(restore_staging) != old_hashes:
+                raise InstallError("restored staging hash verification failed")
+            restore_staging.rename(destination)
+            if _tree_hashes(destination) != old_hashes:
+                raise InstallError("restored destination hash verification failed")
+        except Exception as restore_exc:
+            if _path_present(restore_staging):
+                if _tree_hashes(restore_staging) == old_hashes:
+                    shutil.rmtree(restore_staging)
+            raise InstallError("replacement rollback failed; backup preserved: %s" % restore_exc) from exc
         raise
     return result
 
