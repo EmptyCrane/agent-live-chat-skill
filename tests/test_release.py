@@ -84,7 +84,9 @@ class ReleaseTests(unittest.TestCase):
         self.assertIn(chinese_image, chinese)
         self.assertTrue((ROOT / english_image).is_file())
         self.assertTrue((ROOT / chinese_image).is_file())
-        self.assertNotIn("releases/download/", readme + chinese)
+        for line in (readme + chinese).splitlines():
+            if line.lstrip().startswith("!["):
+                self.assertNotIn("releases/download/", line)
 
     def test_python_ci_audits_the_candidate_commit(self):
         workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")

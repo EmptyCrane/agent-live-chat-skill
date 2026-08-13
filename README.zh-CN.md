@@ -2,151 +2,160 @@
 
 [English README](README.md)
 
-这是一个遵循开放 [Agent Skills](https://agentskills.io/) 格式的多智能体群聊直播项目。它通过零运行时第三方依赖的Python本地服务，把真实子智能体回复按完成顺序展示在只读浏览器页面中，并提供目标驱动轮次、typing、参与者状态、主题、持久化和回放。
+在本地浏览器中实时观看真正的多智能体协作。Agent Live Chat 为兼容 Agent Skills 的宿主提供只读聊天界面，完整展示参与者、输入状态、目标、轮次、历史、导出与回放；服务本身不调用 LLM，也不需要 API Key。
 
-> **Beta状态：** Codex已验证；Claude Code和GitHub Copilot采用相同开放Skill格式，但在完成对应宿主冒烟测试前标记为实验性。
+> **Beta 状态：** OpenAI Codex 已完成验证。Claude Code 与 GitHub Copilot 使用相同的开放 Skill 格式，但在完成对应宿主冒烟测试前仍标记为实验性。
 
-![Agent Live Chat中文界面](docs/images/live-chat-zh-CN.png)
+![Agent Live Chat 中文界面](docs/images/live-chat-zh-CN.png)
 
-## 主要能力
+## 一条命令安装
 
-- 只展示真实子智能体回复，主智能体不伪造台词。
-- 默认选择2–3个互补角色，采用“目标优先、最多3轮”的软护栏。
-- 分离保存角色职责、语气、表达方式、行为规则、请求模型、实际模型和推理强度。
-- 支持暂停、继续、停止、等待用户、部分失败和提前完成状态。
-- 服务只监听`127.0.0.1`，浏览器页面保持只读。
-- 运行时仅依赖Python标准库，不需要API Key。
-- 状态与Skill代码分离，可恢复、迁移和回放历史对话。
-- 多会话使用稳定ID独立保存，可只读浏览、归档、导出和非破坏回放。
-- 提供doctor、确定性Demo、标准事件协议和三宿主薄适配。
-- 自适应单栏/双栏布局，提供自动、浅色和深色主题。
+将已审计的 `v0.1.0-beta.6` 全局安装到 Codex：
+
+```bash
+npx --yes skills add https://github.com/EmptyCrane/agent-live-chat-skill/releases/download/v0.1.0-beta.6/live-chat-0.1.0-beta.6.zip --global --agent codex --yes --copy
+```
+
+该命令使用开源 [`skills`](https://github.com/vercel-labs/skills) CLI。Node.js 与 npm 只在安装时需要；安装后的 Skill 只要求 Python 3.9+，没有第三方运行时依赖。`--copy` 使用文件复制而非符号链接，既可避免 Windows 符号链接权限问题，也会在 CLI 管理的全局目录 `~/.agents/skills/live-chat` 中保留独立副本。下文的仓库安装器则使用 Codex 原生目标 `~/.codex/skills/live-chat`。
+
+验证安装结果：
+
+```bash
+npx --yes skills list --global --agent codex
+```
+
+新建一个 Codex 任务，然后输入：
+
+> 使用 `$live-chat` 对这个方案进行三角色直播评审，达到验收条件时提前结束。
+
+此命令安装的是 GitHub 官方宿主中立版，使用下文说明的标准服务端点和状态配置；机器专用的 Codex overlay 不属于公开发布包。
+
+如需尝试其他宿主，可将 `codex` 替换为 `claude-code` 或 `github-copilot`。安装任何第三方 Skill 前都应先审查其内容。
+
+## 为什么使用它
+
+- **真实对话：** 按实际完成顺序展示子智能体回复，宿主不会伪造参与者或台词。
+- **目标驱动：** 使用互补角色、明确验收条件、默认最多三轮，并在目标完成时提前结束。
+- **过程可见：** 展示参与者、输入状态、请求模型、实际模型、推理强度、进度和终态。
+- **会话持久化：** 使用稳定 ID 保存会话，可选择、归档、恢复、导出和非破坏回放。
+- **本地优先：** 只监听 `127.0.0.1`，浏览器页面只读，聊天数据保存在本机。
+- **轻量运行：** 仅使用 Python 标准库，不包含前端框架或远程托管资源。
+- **如实降级：** 宿主缺少子智能体或浏览器能力时，保留回放和手动推送模式，并明确说明限制。
 
 ## 工作方式
 
-宿主智能体负责需求采集、派发子智能体和判断目标；Python服务只负责保存与展示，不调用任何LLM。回复按真实完成顺序通过CLI或localhost API推送到页面。
+```mermaid
+flowchart LR
+    U[用户] --> H[宿主智能体]
+    H -->|宿主支持时派发| A[子智能体]
+    A -->|按真实完成顺序返回| H
+    H -->|CLI / localhost API| S[Python live-chat 服务]
+    S --> D[(本地状态)]
+    S --> B[只读浏览器界面]
+```
 
-如果宿主没有子智能体能力，Skill会保留服务、回放和手动推送模式，并明确说明实时多智能体编排不可用；不会用单一智能体模拟多个角色。
+宿主智能体负责理解需求、派发真实子智能体、转发回复并判断目标是否完成。Python 服务只负责校验、持久化和展示对话，不会自行调用任何模型。
 
-## 兼容性
+## 宿主兼容性
 
-| 宿主 | Skill目录 | 多智能体直播 | v0.1状态 |
-| --- | --- | --- | --- |
-| OpenAI Codex | `.agents/skills` | 宿主提供子智能体时可用 | 已验证 |
-| Claude Code | `.claude/skills` | 宿主提供子智能体时可用 | 实验性 |
-| GitHub Copilot | `.github/skills`、`.copilot/skills`或`.agents/skills` | 取决于宿主表面 | 实验性 |
+| 宿主 | 项目级 Skill 路径 | 全局 Skill 路径 | 多智能体编排 | 状态 |
+| --- | --- | --- | --- | --- |
+| OpenAI Codex | `.agents/skills/live-chat` | 一键安装使用 `~/.agents/skills/live-chat`；仓库安装器使用 `~/.codex/skills/live-chat` | 宿主暴露子智能体能力时可用 | 已验证 |
+| Claude Code | `.claude/skills/live-chat` | `~/.claude/skills/live-chat` | 宿主暴露子智能体能力时可用 | 实验性 |
+| GitHub Copilot | `.agents/skills/live-chat` 或 `.github/skills/live-chat` | `~/.copilot/skills/live-chat` | 取决于具体 Copilot 使用界面 | 实验性 |
 
-## 安装
+打开浏览器、中断任务、选择模型和推理强度是彼此独立的宿主能力。宿主未提供某项能力时，Skill 会使用文档规定的降级路径，而不会自行猜测。
 
-需要Python 3.9或更高版本。克隆仓库后先预览：
+## 使用方式
+
+自然语言示例：
+
+> 对这个方案进行三角色直播评审：Architect 语气理性简洁，Critic 直接但尊重他人，Operator 务实；Critic 请求当前宿主最强的可用模型，其他角色继承宿主模型；达到验收条件时提前结束。
+
+支持显式 Skill 调用的宿主可使用 `$live-chat`。Skill 只补问缺失的目标或交付物信息，随后启动或复用本地服务，并通过宿主浏览器工具打开页面；如果宿主没有该工具，则返回 localhost 链接。
+
+模型标识属于宿主能力，不是角色人设。精确请求的模型不可用时，默认策略会暂停并请求确认。只有宿主能够提供相关信息时，页面才会展示请求模型和实际模型。
+
+### 界面语言
+
+浏览器界面提供完整英文和简体中文文案。可在页面 URL 中加入 `?lang=en` 或 `?lang=zh-CN` 显式选择；未指定时，中文浏览器环境使用中文，其他环境使用英文。场景标题、参与者名称和聊天正文属于用户数据，不会自动翻译。
+
+## 高级安装
+
+需要 dry-run、明确安装范围、受控替换或时间戳备份时，可使用仓库自带安装器。克隆仓库后先预览 Codex 用户级安装：
 
 ```bash
 python tools/install.py --host codex --scope user
 ```
 
-确认目标后应用：
+确认目标后执行：
 
 ```bash
 python tools/install.py --host codex --scope user --apply
 ```
 
-`codex`用户级目标为`$CODEX_HOME/skills`，未设置时为`~/.codex/skills`。如需`~/.agents/skills`，显式使用`--host agents`。安装器不会移动或删除另一位置的同名Skill，`doctor`会报告潜在冲突。
+只有确定需要替换现有目录时才使用 `--replace`；安装器会先将旧目录移动到备份位置。其他可选宿主为 `agents`、`claude` 和 `copilot`；`--host auto` 仅在恰好识别出一个宿主根目录时继续。项目级安装使用 `--scope project`，默认目标为当前目录。
 
-Claude Code或GitHub Copilot分别使用`--host claude`或`--host copilot`。`--host auto`只有在恰好识别到一个现有宿主Skill根目录时才会继续；没有匹配或存在多个匹配时会终止并要求显式指定。
+也可以手动复制 `skill/live-chat` 到对应的 Skill 目录，并保持目录名为 `live-chat`。
 
-安装到所有支持宿主：
+## 服务 CLI 与本地数据
 
-```bash
-python tools/install.py --host all --scope user --apply
-```
-
-项目级安装：
-
-```bash
-python tools/install.py --host codex --scope project --apply
-```
-
-安装器默认只做dry-run。目标存在时会终止；只有显式提供`--replace`才会先把旧目录重命名为带时间戳的备份，然后安装新版。
-
-也可以手动把`skill/live-chat`复制到对应的Skill目录，并保持目录名为`live-chat`。
-
-## 使用
-
-示例请求：
-
-> 对这个方案进行三角色直播评审：Architect语气理性简洁，Critic直接但尊重他人，Operator务实；Critic请求当前宿主最强的可用模型，其他角色继承宿主模型；达到验收条件时提前结束。
-
-支持显式Skill调用的宿主也可使用`$live-chat`。如果目标和交付物已经明确，Skill不会重复询问。
-
-模型标识属于宿主能力，不是角色人设。精确请求的模型不可用时默认暂停并询问，不会静默映射为其他厂商模型；宿主能够确认时，页面会分别展示请求模型和实际模型。
-
-CLI示例：
+通常由宿主自动调用以下命令；诊断和手动工作流也可以直接使用：
 
 ```bash
 python skill/live-chat/scripts/live_chat.py --version
-python skill/live-chat/scripts/live_chat.py --json start
 python skill/live-chat/scripts/live_chat.py --json doctor --host codex
-python skill/live-chat/scripts/live_chat.py --json demo --lang zh-CN --port 0
+python skill/live-chat/scripts/live_chat.py --json start
 python skill/live-chat/scripts/live_chat.py sessions create --title "架构评审"
 python skill/live-chat/scripts/live_chat.py sessions list --archived
-python skill/live-chat/scripts/live_chat.py status
-python skill/live-chat/scripts/live_chat.py participants set Architect Critic Operator
-python skill/live-chat/scripts/live_chat.py msg Architect "Initial proposal"
+python skill/live-chat/scripts/live_chat.py export SESSION_ID --format events --file history.json
+python skill/live-chat/scripts/live_chat.py replay --file history.json --speed 0
 python skill/live-chat/scripts/live_chat.py stop
 ```
 
-`doctor`全部通过时退出码为`0`，仅有警告时为`2`，存在失败项时为`1`。
+`doctor` 全部通过时退出码为 `0`，仅有警告时为 `2`，存在失败项时为 `1`。
 
-导出和回放：
-
-```bash
-python skill/live-chat/scripts/live_chat.py export SESSION_ID --format events --file history.json
-python skill/live-chat/scripts/live_chat.py replay --file history.json --speed 0
-```
-
-默认运行数据路径：
+默认状态目录：
 
 - Windows：`%LOCALAPPDATA%\agent-live-chat`
 - macOS：`~/Library/Application Support/agent-live-chat`
-- Linux：`$XDG_STATE_HOME/agent-live-chat`，未设置时为`~/.local/state/agent-live-chat`
+- Linux：`$XDG_STATE_HOME/agent-live-chat`，未设置时回退到 `~/.local/state/agent-live-chat`
 
-可通过`LIVE_CHAT_STATE_DIR`覆盖。新版首次启动且中性目录为空时，只复制旧Codex目录中的`state.json`；不会迁移PID、实例文件或日志，也不会删除旧数据。
+可通过 `LIVE_CHAT_STATE_DIR` 指定其他位置。首次使用空的中性状态目录时，服务可能只复制旧 Codex 目录中的 `state.json`；不会迁移 PID 文件或日志，也不会删除原文件。
 
-## 安全边界
+## 安全与隐私
 
-- 服务只绑定回环地址，不应通过代理暴露到公网。
-- 页面不发送写请求，所有状态修改来自本地CLI/API。
-- 聊天内容仅保存在本机会话目录、快照和事件日志中；服务日志默认不记录完整正文。
-- 安装器拒绝符号链接目标，不提供递归卸载。
-- 第三方Skill包含可执行说明与脚本，安装前应审查源码。
+- HTTP 服务只绑定回环地址，不应通过公网代理或共享端口映射对外暴露。
+- Web 页面只发送 `GET` 请求；所有状态修改来自本地 CLI/API。
+- 对话内容仅保存在本机会话、快照和事件文件中；服务日志默认不记录完整正文。
+- 安装器拒绝符号链接和 reparse point，阻止路径逃逸，也不提供递归卸载功能。
+- 服务面向单机可信用户，不适合公网托管或多租户场景。
 
-更多信息见[SECURITY.md](SECURITY.md)。
+威胁边界和私密漏洞报告方式见 [SECURITY.md](SECURITY.md)。
 
-## 开发与发布
+## 开发
 
 ```bash
 python -m unittest discover -s tests -p "test_*.py" -v
 python tools/package_release.py --version 0.1.0-beta.6
 ```
 
-视觉测试需要Node.js和锁定的Playwright开发依赖：
+视觉检查使用锁定版本的 Playwright 开发依赖：
 
 ```bash
 npm ci
 npx playwright install chromium
 ```
 
-发布ZIP只包含`skill/live-chat`运行文件和SHA-256校验文件，不包含测试、文档、缓存、状态或日志。
+发布 ZIP 不包含开发依赖、测试、状态、日志或说明文档。
 
-## 已知限制
+## Beta 状态与限制
 
-- `v0.1.0-beta.6`保持Beta 4 HTTP协议和状态Schema版本1兼容，新增事件协议版本1、多会话、诊断、Demo、导出回放和宿主适配，并确保 Windows 与 POSIX 构建生成确定一致的 ZIP 元数据。
-
-- Claude Code与Copilot目前完成格式兼容检查，但尚未完成对应宿主实测。
-- 自动打开浏览器和强制中断运行中子智能体依赖宿主能力。
-- 子智能体模型覆盖与推理强度取决于当前宿主工具；宿主不公开实际模型时显示为`host-managed`，不进行猜测。
-- GitHub托管macOS runner目前受[runner-images #14409](https://github.com/actions/runner-images/issues/14409)影响，无法执行分离进程localhost生命周期测试；macOS仍运行其余单测、HTTP、安装器和打包检查，POSIX分离进程生命周期由Ubuntu验证。
-- 本地服务面向单机可信用户，不适合公网、多租户或未受信网络。
+- `v0.1.0-beta.6` 保持 Beta 4 HTTP 协议和状态 Schema 兼容，同时新增事件协议版本 1、多会话、doctor/demo、导出回放、宿主适配和跨平台确定性打包。
+- Claude Code 与 GitHub Copilot 已通过格式检查，但尚未完成对应宿主的真实冒烟测试。
+- GitHub 托管的 macOS runner 目前会跳过受 [runner-images #14409](https://github.com/actions/runner-images/issues/14409) 影响的分离进程 localhost 生命周期；其余 macOS 测试仍会运行，POSIX 生命周期由 Ubuntu 验证。
+- 公开发布包保持宿主中立；浏览器打开、中断、端点策略和模型控制等宿主专属行为取决于当前宿主。
 
 ## 许可证
 
-MIT，见[LICENSE](LICENSE)。
+MIT，见 [LICENSE](LICENSE)。
