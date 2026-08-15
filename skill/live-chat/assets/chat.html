@@ -198,6 +198,15 @@
     .session-bar[data-status="completed"] .session-state-dot { background: var(--session-completed); }
     .session-bar[data-status="stopped"] .session-state-dot { background: var(--session-stopped); }
     .session-bar[data-status="partial_failure"] .session-state-dot { background: var(--session-failed); }
+    .message-tools { display: flex; gap: 7px; padding: 7px 12px; border-bottom: 1px solid var(--line); background: var(--surface-raised); }
+    .message-tools input, .message-tools select, .compare-button {
+      min-width: 0; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); color: var(--text); font: inherit;
+    }
+    .message-tools input { flex: 1; padding: 6px 9px; }
+    .message-tools select { max-width: 150px; padding: 6px 8px; }
+    .message-row[hidden], .system-message[hidden] { display: none; }
+    .compare-button { margin-top: 7px; padding: 6px 8px; cursor: pointer; }
+    .comparison-panel { margin-top: 7px; padding: 8px; border: 1px solid var(--line); border-radius: 9px; color: var(--muted); font-size: 10.5px; line-height: 1.45; white-space: pre-wrap; }
 
     .chat-scroll {
       position: relative;
@@ -508,6 +517,10 @@
         <span id="session-objective" class="session-objective"></span>
         <span id="session-progress" class="session-progress"></span>
       </section>
+      <div class="message-tools">
+        <input id="message-search" type="search" autocomplete="off" placeholder="Search messages" aria-label="Search messages">
+        <select id="message-participant" aria-label="Filter by participant"><option value="">All participants</option></select>
+      </div>
       <main id="chat-scroll" class="chat-scroll">
         <div id="msgs" aria-live="polite" data-empty-text="💬  Waiting for the host"></div>
       </main>
@@ -523,6 +536,8 @@
         <div id="rail-history" class="history-picker" hidden>
           <label for="rail-session-select">Conversation history</label>
           <select id="rail-session-select" class="history-select"></select>
+          <button id="rail-compare" class="compare-button" type="button" hidden>Compare with active</button>
+          <div id="rail-comparison" class="comparison-panel" hidden></div>
         </div>
       </div>
       <div id="rail-session" class="session-detail" hidden></div>
@@ -540,6 +555,8 @@
       <div id="sheet-history" class="history-picker" hidden>
         <label for="sheet-session-select">Conversation history</label>
         <select id="sheet-session-select" class="history-select"></select>
+        <button id="sheet-compare" class="compare-button" type="button" hidden>Compare with active</button>
+        <div id="sheet-comparison" class="comparison-panel" hidden></div>
       </div>
       <div id="sheet-session" class="session-detail" hidden></div>
       <div id="sheet-member-list" class="member-list" data-empty-text="Participants will appear here"></div>
@@ -572,6 +589,8 @@
         participants: total => total + (total === 1 ? ' participant' : ' participants'),
         membersTitle: 'Participants', closeMembers: 'Close participant list',
         historyTitle: 'Conversation history', activeSession: 'active', archivedSession: 'archived',
+        searchPlaceholder: 'Search messages', allParticipants: 'All participants',
+        compareActive: 'Compare with active', compareTitle: 'Session result comparison',
         emptyChat: '💬  Waiting for the host', emptyMembers: 'Participants will appear here',
         sessionAria: 'Session progress', titleSuffix: 'live', sessionRunning: 'Session in progress',
         themes: { auto: 'automatic', light: 'light', dark: 'dark' },
@@ -588,7 +607,8 @@
         progress: (current, max, phase, status) => 'Round ' + current + '/' + max + ' · ' + phase + ' · ' + status,
         labels: {
           objective: 'Objective', deliverable: 'Deliverable', criteria: 'Completion criteria',
-          roles: 'Participant roles', reason: 'Status note'
+          roles: 'Participant roles', workflow: 'Workflow', decision: 'Waiting for decision',
+          result: 'Result', reason: 'Status note'
         },
         requestedModel: value => value + ' (requested)', requestedSuffix: value => ' (requested: ' + value + ')',
         modelLine: (model, effort) => 'Model: ' + model + ' · Reasoning: ' + effort,
@@ -605,6 +625,8 @@
         viewMembers: total => '查看群聊成员，共 ' + total + ' 位', participants: total => total + ' 位参与者',
         membersTitle: '群聊成员', closeMembers: '关闭成员列表',
         historyTitle: '会话历史', activeSession: '当前', archivedSession: '已归档',
+        searchPlaceholder: '搜索消息', allParticipants: '全部参与者',
+        compareActive: '与当前会话比较', compareTitle: '会话结果比较',
         emptyChat: '💬  等待主持人开场', emptyMembers: '参与者加入后会显示在这里',
         sessionAria: '会话进度', titleSuffix: '直播', sessionRunning: '会话进行中',
         themes: { auto: '自动', light: '浅色', dark: '深色' },
@@ -618,7 +640,7 @@
           not_started: '准备中', independent: '独立观点', challenge: '交叉质询', synthesis: '收敛总结'
         },
         progress: (current, max, phase, status) => '第 ' + current + '/' + max + ' 轮 · ' + phase + ' · ' + status,
-        labels: { objective: '目标', deliverable: '交付物', criteria: '完成条件', roles: '参与角色', reason: '状态说明' },
+        labels: { objective: '目标', deliverable: '交付物', criteria: '完成条件', roles: '参与角色', workflow: '编排', decision: '等待决策', result: '结果', reason: '状态说明' },
         requestedModel: value => value + '（请求）', requestedSuffix: value => '（请求：' + value + '）',
         modelLine: (model, effort) => '模型：' + model + ' · 推理：' + effort,
         tone: value => '语气：' + value, style: value => '表达：' + value,
@@ -656,6 +678,12 @@
     const sheetHistory = document.getElementById('sheet-history');
     const railSessionSelect = document.getElementById('rail-session-select');
     const sheetSessionSelect = document.getElementById('sheet-session-select');
+    const messageSearch = document.getElementById('message-search');
+    const messageParticipant = document.getElementById('message-participant');
+    const railCompare = document.getElementById('rail-compare');
+    const sheetCompare = document.getElementById('sheet-compare');
+    const railComparison = document.getElementById('rail-comparison');
+    const sheetComparison = document.getElementById('sheet-comparison');
     const narrowLayout = window.matchMedia('(max-width: 819px)');
 
     const THEME_KEY = 'live-chat-theme';
@@ -687,6 +715,9 @@
     let sessionPollTimer = null;
     let selectedSession = new URLSearchParams(window.location.search).get('session') || null;
     let sessionCatalogSignature = '';
+    let activeSessionId = null;
+    let stream = null;
+    let streamRetryTimer = null;
 
     const SESSION_STATUS = T.sessionStatus;
     const SESSION_PHASE = T.sessionPhase;
@@ -705,6 +736,11 @@
       sheetClose.setAttribute('aria-label', T.closeMembers);
       document.querySelector('#rail-history label').textContent = T.historyTitle;
       document.querySelector('#sheet-history label').textContent = T.historyTitle;
+      messageSearch.placeholder = T.searchPlaceholder;
+      messageSearch.setAttribute('aria-label', T.searchPlaceholder);
+      messageParticipant.setAttribute('aria-label', T.allParticipants);
+      railCompare.textContent = T.compareActive;
+      sheetCompare.textContent = T.compareActive;
       listEl.dataset.emptyText = T.emptyChat;
       desktopMemberList.dataset.emptyText = T.emptyMembers;
       sheetMemberList.dataset.emptyText = T.emptyMembers;
@@ -825,6 +861,21 @@
       }
       desktopMemberList.replaceChildren(desktopFragment);
       sheetMemberList.replaceChildren(sheetFragment);
+      const selectedFilter = messageParticipant.value;
+      const options = document.createDocumentFragment();
+      const all = document.createElement('option');
+      all.value = '';
+      all.textContent = T.allParticipants;
+      options.appendChild(all);
+      for (const name of participants) {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = name;
+        options.appendChild(option);
+      }
+      messageParticipant.replaceChildren(options);
+      messageParticipant.value = participants.includes(selectedFilter) ? selectedFilter : '';
+      applyMessageFilters();
     }
 
     function renderScene(scene) {
@@ -953,6 +1004,45 @@
         fragment.appendChild(roles);
       }
 
+      if (session.workflow) {
+        const limits = session.workflow.limits || {};
+        appendDetailLabel(fragment, T.labels.workflow);
+        appendDetailText(
+          fragment,
+          session.workflow.strategy + ' · ' + session.workflow.approval
+            + ' · rounds ' + (limits.max_rounds || '-')
+            + ' · retries ' + (limits.max_retries ?? '-'),
+        );
+      }
+
+      if (session.pending_decision) {
+        appendDetailLabel(fragment, T.labels.decision);
+        appendDetailText(fragment, session.pending_decision.prompt, 'session-reason');
+      }
+
+      if (session.run && session.run.participants && session.run.participants.length) {
+        appendDetailLabel(fragment, T.labels.workflow);
+        appendDetailText(
+          fragment,
+          session.run.participants.map(item => item.name + ': ' + item.status).join(' · '),
+        );
+      }
+
+      if (session.result) {
+        appendDetailLabel(fragment, T.labels.result);
+        appendDetailText(fragment, session.result.summary);
+        if (session.result.criteria && session.result.criteria.length) {
+          const resultList = document.createElement('ul');
+          resultList.className = 'session-detail-list';
+          for (const criterion of session.result.criteria) {
+            const item = document.createElement('li');
+            item.textContent = criterion.status + ' · ' + criterion.text;
+            resultList.appendChild(item);
+          }
+          fragment.appendChild(resultList);
+        }
+      }
+
       if (session.stop_reason) {
         appendDetailLabel(fragment, T.labels.reason);
         appendDetailText(fragment, session.stop_reason, 'session-reason');
@@ -998,6 +1088,8 @@
         const item = document.createElement('div');
         item.className = 'system-message' + (animate ? ' round-enter' : '');
         item.textContent = message.text;
+        item.dataset.sender = '';
+        item.dataset.search = message.text.toLocaleLowerCase();
         lastSender = null;
         return item;
       }
@@ -1013,6 +1105,8 @@
       const time = document.createElement('span');
       const text = document.createElement('div');
       row.className = 'message-row' + (message.sender === lastSender ? ' same' : '') + (animate ? ' enter' : '');
+      row.dataset.sender = message.sender;
+      row.dataset.search = (message.sender + '\n' + message.text).toLocaleLowerCase();
       bubble.className = 'message-bubble';
       meta.className = 'message-meta';
       name.className = 'sender-name';
@@ -1028,6 +1122,16 @@
       row.append(avatar, bubble);
       lastSender = message.sender;
       return row;
+    }
+
+    function applyMessageFilters() {
+      const query = messageSearch.value.trim().toLocaleLowerCase();
+      const sender = messageParticipant.value;
+      for (const item of listEl.children) {
+        const senderMatches = !sender || item.dataset.sender === sender;
+        const textMatches = !query || (item.dataset.search || '').includes(query);
+        item.hidden = !(senderMatches && textMatches);
+      }
     }
 
     function appendMessageBatch(messages, batchEpoch, animate) {
@@ -1134,11 +1238,13 @@
       epoch = null;
       revision = 0;
       clearDerived();
+      stopStream();
       schedulePoll(0);
     }
 
     function renderSessionCatalog(value) {
       if (!value || !Array.isArray(value.sessions)) return;
+      activeSessionId = value.active_session_id || null;
       if (!selectedSession) selectedSession = value.active_session_id || null;
       if (selectedSession && !value.sessions.some(item => item.session_id === selectedSession)) {
         selectedSession = value.active_session_id || null;
@@ -1162,6 +1268,44 @@
       }
       railHistory.hidden = false;
       sheetHistory.hidden = false;
+      const canCompare = Boolean(selectedSession && activeSessionId && selectedSession !== activeSessionId);
+      railCompare.hidden = !canCompare;
+      sheetCompare.hidden = !canCompare;
+      if (!canCompare) {
+        railComparison.hidden = true;
+        sheetComparison.hidden = true;
+      }
+    }
+
+    function resultSummary(session) {
+      if (!session || !session.result) return '-';
+      const criteria = session.result.criteria || [];
+      const met = criteria.filter(item => item.status === 'met').length;
+      return session.result.summary + '\n' + met + '/' + criteria.length + ' criteria met';
+    }
+
+    async function compareWithActive() {
+      if (!selectedSession || !activeSessionId || selectedSession === activeSessionId) return;
+      try {
+        const [selectedResponse, activeResponse] = await Promise.all([
+          fetch('/api/state?since=0&session=' + encodeURIComponent(selectedSession), { cache: 'no-store' }),
+          fetch('/api/state?since=0&session=' + encodeURIComponent(activeSessionId), { cache: 'no-store' }),
+        ]);
+        if (!selectedResponse.ok || !activeResponse.ok) throw new Error('comparison unavailable');
+        const selected = await selectedResponse.json();
+        const active = await activeResponse.json();
+        const text = T.compareTitle + '\n\n' + resultSummary(selected.session)
+          + '\n\n↔\n\n' + resultSummary(active.session);
+        railComparison.textContent = text;
+        sheetComparison.textContent = text;
+        railComparison.hidden = false;
+        sheetComparison.hidden = false;
+      } catch (error) {
+        railComparison.textContent = T.reconnecting;
+        sheetComparison.textContent = T.reconnecting;
+        railComparison.hidden = false;
+        sheetComparison.hidden = false;
+      }
     }
 
     async function pollSessions() {
@@ -1194,6 +1338,30 @@
     function schedulePoll(delay) {
       if (pollTimer) clearTimeout(pollTimer);
       pollTimer = setTimeout(poll, delay);
+    }
+
+    function stopStream() {
+      if (stream) stream.close();
+      stream = null;
+      if (streamRetryTimer) clearTimeout(streamRetryTimer);
+      streamRetryTimer = null;
+    }
+
+    function startStream() {
+      if (!window.EventSource || stream) return;
+      const sessionQuery = selectedSession ? '&session=' + encodeURIComponent(selectedSession) : '';
+      stream = new EventSource('/api/stream?after_revision=' + revision + sessionQuery);
+      stream.addEventListener('revision', () => schedulePoll(0));
+      stream.onerror = () => {
+        if (stream) stream.close();
+        stream = null;
+        if (!streamRetryTimer) {
+          streamRetryTimer = setTimeout(() => {
+            streamRetryTimer = null;
+            startStream();
+          }, 5000);
+        }
+      };
     }
 
     async function poll() {
@@ -1235,6 +1403,8 @@
         firstBatch = false;
         renderTyping(data.typing);
         renderMembers(participantsChanged);
+        startStream();
+        nextDelay = stream ? 5000 : 500;
       } catch (error) {
         setStatus(false);
         nextDelay = retryDelay;
@@ -1255,6 +1425,10 @@
       const next = THEME_MODES[(THEME_MODES.indexOf(themeMode) + 1) % THEME_MODES.length];
       themeMode = applyTheme(next, true);
     });
+    messageSearch.addEventListener('input', applyMessageFilters);
+    messageParticipant.addEventListener('change', applyMessageFilters);
+    railCompare.addEventListener('click', compareWithActive);
+    sheetCompare.addEventListener('click', compareWithActive);
     sheetClose.addEventListener('click', closeMemberSheet);
     sheetBackdrop.addEventListener('click', event => {
       if (event.target === sheetBackdrop) closeMemberSheet();

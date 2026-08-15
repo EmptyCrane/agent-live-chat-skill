@@ -2,7 +2,9 @@
 
 import json
 import logging
+import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -12,6 +14,7 @@ from .config import (
     EVENT_PROTOCOL_VERSION,
     MAX_BODY_BYTES,
     PROTOCOL_VERSION,
+    SCHEMA_VERSION,
     SERVICE_NAME,
 )
 from .validation import ValidationError, require_mapping, validate_since
@@ -27,6 +30,13 @@ class LiveChatHTTPServer(ThreadingHTTPServer):
         self.instance_id = instance_id
         self.asset_path = Path(asset_path)
         self.logger = logger or logging.getLogger(__name__)
+
+    def handle_error(self, request, client_address):
+        error = sys.exc_info()[1]
+        if isinstance(error, (BrokenPipeError, ConnectionAbortedError, ConnectionResetError)):
+            self.logger.debug("http client disconnected: %s", client_address[0])
+            return
+        super().handle_error(request, client_address)
 
 
 class LiveChatHandler(BaseHTTPRequestHandler):
@@ -50,6 +60,42 @@ class LiveChatHandler(BaseHTTPRequestHandler):
 
     def _error(self, code, message, status):
         self._json({"error": {"code": code, "message": message}}, status)
+
+    def _stream(self, parsed):
+        self._require_sessions()
+        query = parse_qs(parsed.query, keep_blank_values=True)
+        after = validate_since(query.get("after_revision", ["0"])[0])
+        session_id = query.get("session", [None])[0] or None
+        # Resolve the target before committing SSE headers so an invalid
+        # session still receives the normal structured JSON error response.
+        self.server.store.summary(session_id)
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "keep-alive")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        deadline = time.monotonic() + 20
+        heartbeat = time.monotonic() + 5
+        try:
+            while time.monotonic() < deadline:
+                summary = self.server.store.summary(session_id)
+                if summary["revision"] > after:
+                    payload = json.dumps(summary, ensure_ascii=False, separators=(",", ":"))
+                    body = (
+                        "id: %d\nevent: revision\ndata: %s\n\n"
+                        % (summary["revision"], payload)
+                    ).encode("utf-8")
+                    self.wfile.write(body)
+                    self.wfile.flush()
+                    after = summary["revision"]
+                elif time.monotonic() >= heartbeat:
+                    self.wfile.write(b": keep-alive\n\n")
+                    self.wfile.flush()
+                    heartbeat = time.monotonic() + 5
+                time.sleep(0.25)
+        except OSError:
+            return
 
     def _read_json(self):
         content_type = self.headers.get("Content-Type", "")
@@ -89,7 +135,19 @@ class LiveChatHandler(BaseHTTPRequestHandler):
         if hasattr(self.server.store, "list_sessions"):
             value.update({
                 "event_protocol_version": EVENT_PROTOCOL_VERSION,
-                "features": ["sessions", "events", "export", "replay", "doctor", "demo"],
+                "session_schema_version": SCHEMA_VERSION,
+                "features": [
+                    "sessions",
+                    "events",
+                    "export",
+                    "replay",
+                    "doctor",
+                    "demo",
+                    "decisions",
+                    "workflow_strategies",
+                    "run_tracing",
+                    "sse",
+                ],
             })
         return value
 
@@ -144,9 +202,14 @@ class LiveChatHandler(BaseHTTPRequestHandler):
                 after = validate_since(query.get("after", ["0"])[0])
                 self._json(self.server.store.get_events(session_id, after))
                 return
+            if parsed.path == "/api/stream":
+                self._stream(parsed)
+                return
             self._error("not_found", "endpoint not found", 404)
         except ValidationError as exc:
             self._error(exc.code, exc.message, exc.status)
+        except (BrokenPipeError, ConnectionResetError):
+            return
         except Exception:
             self.server.logger.exception("Unhandled GET failure path=%s", self.path)
             self._error("internal_error", "internal server error", 500)
@@ -199,6 +262,16 @@ class LiveChatHandler(BaseHTTPRequestHandler):
                 if not isinstance(events, list):
                     raise ValidationError("invalid_event_batch", "events must be an array")
                 result = self.server.store.emit_batch(events, body.get("session_id"))
+            elif parsed.path == "/api/decisions":
+                self._require_sessions()
+                result = self.server.store.request_decision(
+                    body, body.get("session_id"), body.get("source")
+                )
+            elif parsed.path == "/api/decisions/resolve":
+                self._require_sessions()
+                result = self.server.store.resolve_decision(
+                    body, body.get("session_id"), body.get("source")
+                )
             elif parsed.path == "/api/shutdown":
                 result = {"ok": True, "instance_id": self.server.instance_id}
                 self._json(result)

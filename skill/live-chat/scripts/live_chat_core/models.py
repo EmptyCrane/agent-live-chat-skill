@@ -27,6 +27,25 @@ DEFAULT_SESSION = {
         "phase": "not_started",
         "completed_participants": [],
     },
+    "workflow": {
+        "strategy": "parallel_panel",
+        "approval": "required",
+        "limits": {
+            "max_rounds": 3,
+            "max_participants": 3,
+            "max_retries": 1,
+            "wall_time_seconds": None,
+        },
+    },
+    "pending_decision": None,
+    "run": {
+        "id": "",
+        "started_at": "",
+        "updated_at": "",
+        "participants": [],
+        "round_summaries": [],
+    },
+    "result": None,
     "stop_reason": "",
 }
 

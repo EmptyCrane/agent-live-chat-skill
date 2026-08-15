@@ -11,6 +11,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 from live_chat_core.store import StateStore  # noqa: E402
 from live_chat_core.validation import ValidationError  # noqa: E402
+from live_chat_core.models import initial_state  # noqa: E402
 
 
 class StoreTests(unittest.TestCase):
@@ -51,6 +52,17 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(recovered["messages"][0]["text"], "Hello")
         self.assertTrue(recovered["typing"]["Alice"])
         self.assertEqual(recovered["revision"], 3)
+
+    def test_load_atomically_migrates_v1_snapshot_to_v2(self):
+        legacy = initial_state()
+        legacy["schema_version"] = 1
+        for field in ("workflow", "pending_decision", "run", "result"):
+            legacy["session"].pop(field)
+        self.path.write_text(json.dumps(legacy), encoding="utf-8")
+        StateStore(self.path)
+        persisted = json.loads(self.path.read_text(encoding="utf-8"))
+        self.assertEqual(persisted["schema_version"], 2)
+        self.assertEqual(persisted["session"]["workflow"]["approval"], "legacy")
 
     def test_reset_and_seed_advance_epoch(self):
         self.store.set_participants(["Waiting", "A"])

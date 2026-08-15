@@ -35,8 +35,9 @@ For experimental host installs, replace `codex` with `claude-code` or `github-co
 ## Why use it
 
 - **Real dialogue:** displays actual subagent replies in completion order; the host never fabricates participants or messages.
-- **Goal-driven orchestration:** supports complementary roles, explicit acceptance criteria, up to three rounds by default, and early completion.
-- **Visible execution state:** shows participants, typing, requested and effective models, reasoning effort, progress, and terminal status.
+- **Plan-first orchestration:** reuses known context, asks for only material gaps, and presents a bounded workflow for approval before dispatch.
+- **Controlled collaboration:** supports parallel panels, sequential pipelines, critic–revise loops, and debate–judge sessions with deterministic budgets.
+- **Visible execution state:** shows participants, typing, decisions, per-role status, requested and effective models, progress, evidence, and terminal results.
 - **Persistent conversations:** creates stable-ID sessions that can be selected, archived, restored, exported, and replayed without modifying the source.
 - **Local by design:** binds only to `127.0.0.1`, keeps the browser page read-only, and stores conversation data on the local machine.
 - **Small runtime:** uses only the Python standard library and ships without frontend frameworks or hosted assets.
@@ -72,7 +73,7 @@ Natural-language example:
 
 > Run a live three-role review of this proposal. Use an Architect with a concise tone, a direct but respectful Critic, and a pragmatic Operator. Request the strongest available model for the Critic, inherit the host model for the others, and stop early if the acceptance criteria are met.
 
-Where supported, `$live-chat` explicitly activates the Skill. It asks only for missing objective or deliverable information, starts or reuses the local service, and opens the page through the host's browser tool or returns a localhost URL.
+Where supported, `$live-chat` explicitly activates the Skill. It extracts the goal, deliverable, acceptance criteria, language, constraints, roles, model policy, and budget; asks one compact batch only for material gaps; then proposes a session for approval. Say “start directly” to explicitly bypass that initial confirmation. The Skill starts or reuses the local service and opens the page through the host's browser tool or returns a localhost URL.
 
 Model identifiers are host capabilities, not personas. If an exact requested model is unavailable, the default policy pauses for confirmation. The UI shows requested and effective models only when the host can provide that information.
 
@@ -108,6 +109,8 @@ python skill/live-chat/scripts/live_chat.py --json doctor --host codex
 python skill/live-chat/scripts/live_chat.py --json start
 python skill/live-chat/scripts/live_chat.py sessions create --title "Architecture review"
 python skill/live-chat/scripts/live_chat.py sessions list --archived
+python skill/live-chat/scripts/live_chat.py decision request --file decision.json
+python skill/live-chat/scripts/live_chat.py decision resolve DECISION_ID approve --option-id approve
 python skill/live-chat/scripts/live_chat.py export SESSION_ID --format events --file history.json
 python skill/live-chat/scripts/live_chat.py replay --file history.json --speed 0
 python skill/live-chat/scripts/live_chat.py stop
@@ -137,7 +140,8 @@ See [SECURITY.md](SECURITY.md) for the threat boundary and private reporting pro
 
 ```bash
 python -m unittest discover -s tests -p "test_*.py" -v
-python tools/package_release.py --version 0.1.0-beta.6
+python tools/eval_skill.py --json
+python tools/package_release.py --version 0.1.0-beta.7
 ```
 
 Visual checks use the pinned Playwright development dependency:
@@ -151,7 +155,8 @@ Development dependencies, tests, state, logs, and documentation are excluded fro
 
 ## Beta status and limits
 
-- `v0.1.0-beta.6` preserves the Beta 4 HTTP protocol and state schema while adding event protocol version 1, persistent conversations, doctor/demo, export/replay, host adapters, and cross-platform deterministic packaging.
+- The pinned installer remains the audited `v0.1.0-beta.6` release. The current development branch targets Beta 7 with session Schema 2, event protocol 2, plan approval, persisted decisions, bounded workflow strategies, run traces, GET-only SSE, message filtering, and result comparison while continuing to read v1 data.
+- The bundled behavior evaluation is an offline policy-contract check; real host/model end-to-end acceptance remains a separate release gate.
 - Claude Code and GitHub Copilot are format-checked but not yet host-smoke-tested.
 - GitHub-hosted macOS runners currently skip the detached localhost lifecycle affected by [runner-images #14409](https://github.com/actions/runner-images/issues/14409); all other macOS coverage remains enabled, and Ubuntu validates the POSIX lifecycle.
 - The public release is host-neutral. Host-specific browser opening, interruption, endpoint policy, and model controls depend on the active host.

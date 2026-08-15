@@ -35,8 +35,9 @@ npx --yes skills list --global --agent codex
 ## 为什么使用它
 
 - **真实对话：** 按实际完成顺序展示子智能体回复，宿主不会伪造参与者或台词。
-- **目标驱动：** 使用互补角色、明确验收条件、默认最多三轮，并在目标完成时提前结束。
-- **过程可见：** 展示参与者、输入状态、请求模型、实际模型、推理强度、进度和终态。
+- **先规划再执行：** 复用已有上下文，只补问关键缺口，并在派发前展示有明确边界的会话方案供用户确认。
+- **受控编排：** 支持并行评审、顺序流水线、批评修订和辩论仲裁，并使用确定性的轮次、角色与重试预算。
+- **过程可见：** 展示参与者、输入状态、人工决策、角色运行状态、请求与实际模型、进度、证据和最终结果。
 - **会话持久化：** 使用稳定 ID 保存会话，可选择、归档、恢复、导出和非破坏回放。
 - **本地优先：** 只监听 `127.0.0.1`，浏览器页面只读，聊天数据保存在本机。
 - **轻量运行：** 仅使用 Python 标准库，不包含前端框架或远程托管资源。
@@ -72,7 +73,7 @@ flowchart LR
 
 > 对这个方案进行三角色直播评审：Architect 语气理性简洁，Critic 直接但尊重他人，Operator 务实；Critic 请求当前宿主最强的可用模型，其他角色继承宿主模型；达到验收条件时提前结束。
 
-支持显式 Skill 调用的宿主可使用 `$live-chat`。Skill 只补问缺失的目标或交付物信息，随后启动或复用本地服务，并通过宿主浏览器工具打开页面；如果宿主没有该工具，则返回 localhost 链接。
+支持显式 Skill 调用的宿主可使用 `$live-chat`。Skill 会提取目标、交付物、验收条件、语言、限制、角色、模型策略和预算，只把会影响方案的缺口集中补问一次，然后提交会话方案供确认。明确说“直接开始”或“无需确认”可跳过首次确认。随后 Skill 启动或复用本地服务，并通过宿主浏览器工具打开页面；宿主没有该工具时返回 localhost 链接。
 
 模型标识属于宿主能力，不是角色人设。精确请求的模型不可用时，默认策略会暂停并请求确认。只有宿主能够提供相关信息时，页面才会展示请求模型和实际模型。
 
@@ -108,6 +109,8 @@ python skill/live-chat/scripts/live_chat.py --json doctor --host codex
 python skill/live-chat/scripts/live_chat.py --json start
 python skill/live-chat/scripts/live_chat.py sessions create --title "架构评审"
 python skill/live-chat/scripts/live_chat.py sessions list --archived
+python skill/live-chat/scripts/live_chat.py decision request --file decision.json
+python skill/live-chat/scripts/live_chat.py decision resolve DECISION_ID approve --option-id approve
 python skill/live-chat/scripts/live_chat.py export SESSION_ID --format events --file history.json
 python skill/live-chat/scripts/live_chat.py replay --file history.json --speed 0
 python skill/live-chat/scripts/live_chat.py stop
@@ -137,7 +140,8 @@ python skill/live-chat/scripts/live_chat.py stop
 
 ```bash
 python -m unittest discover -s tests -p "test_*.py" -v
-python tools/package_release.py --version 0.1.0-beta.6
+python tools/eval_skill.py --json
+python tools/package_release.py --version 0.1.0-beta.7
 ```
 
 视觉检查使用锁定版本的 Playwright 开发依赖：
@@ -151,7 +155,8 @@ npx playwright install chromium
 
 ## Beta 状态与限制
 
-- `v0.1.0-beta.6` 保持 Beta 4 HTTP 协议和状态 Schema 兼容，同时新增事件协议版本 1、多会话、doctor/demo、导出回放、宿主适配和跨平台确定性打包。
+- 一键安装仍锁定已审计的 `v0.1.0-beta.6` 正式包。当前开发分支面向 Beta 7：新增会话 Schema 2、事件协议 2、方案审批、持久化人工决策、受控编排策略、运行轨迹、GET-only SSE、消息筛选和结果比较，同时继续读取 v1 数据。
+- 内置行为评测属于离线策略契约检查；真实宿主与模型的端到端验收仍是独立发布门禁。
 - Claude Code 与 GitHub Copilot 已通过格式检查，但尚未完成对应宿主的真实冒烟测试。
 - GitHub 托管的 macOS runner 目前会跳过受 [runner-images #14409](https://github.com/actions/runner-images/issues/14409) 影响的分离进程 localhost 生命周期；其余 macOS 测试仍会运行，POSIX 生命周期由 Ubuntu 验证。
 - 公开发布包保持宿主中立；浏览器打开、中断、端点策略和模型控制等宿主专属行为取决于当前宿主。

@@ -186,13 +186,13 @@ class CliTests(unittest.TestCase):
         started = self.run_cli("--json", "start", "--port", "0", "--no-legacy")
         instance = json.loads(started.stdout)
         self.assertTrue(instance["url"].startswith("http://127.0.0.1:"))
-        self.assertEqual(instance["app_version"], "0.1.0-beta.6")
+        self.assertEqual(instance["app_version"], "0.1.0-beta.7")
         self.run_cli("msg", "Alice", "--stdin", input_text="Line one\nLine two")
         self.run_cli("participants", "set", "Alice", "Waiting", "Alice")
         self.run_cli("session", "set", "--stdin", input_text=self.session_json())
         status = self.run_cli("--json", "status")
         value = json.loads(status.stdout)
-        self.assertEqual(value["app_version"], "0.1.0-beta.6")
+        self.assertEqual(value["app_version"], "0.1.0-beta.7")
         self.assertTrue(value["active_session_id"])
         self.assertEqual(len(value["sessions"]), 1)
         self.assertEqual(value["messages"], 1)
@@ -277,7 +277,7 @@ class CliTests(unittest.TestCase):
         export_file = Path(self.temp.name) / "history.json"
         self.run_cli("export", source_id, "--format", "events", "--file", str(export_file))
         exported = json.loads(export_file.read_text(encoding="utf-8"))
-        self.assertEqual(exported["format"], "live-chat-export/v1")
+        self.assertEqual(exported["format"], "live-chat-export/v2")
         replayed = json.loads(
             self.run_cli("--json", "replay", "--file", str(export_file), "--speed", "0").stdout
         )
@@ -286,6 +286,46 @@ class CliTests(unittest.TestCase):
         self.assertIn(source_id, {item["session_id"] for item in catalog["sessions"]})
         source = json.loads(self.run_cli("--json", "sessions", "show", source_id).stdout)
         self.assertEqual(len(source["state"]["messages"]), 3)
+
+        exported["format"] = "live-chat-export/v1"
+        for event in exported["events"]:
+            event["event_version"] = 1
+        v1_export = Path(self.temp.name) / "history-v1.json"
+        v1_export.write_text(json.dumps(exported), encoding="utf-8")
+        replayed_v1 = json.loads(
+            self.run_cli("--json", "replay", "--file", str(v1_export), "--speed", "0").stdout
+        )
+        self.assertNotIn(replayed_v1["session_id"], {source_id, replayed["session_id"]})
+
+    @unittest.skipIf(SKIP_PROCESS_TESTS, PROCESS_SKIP_REASON)
+    def test_decision_request_resolve_and_duplicate_retry(self):
+        self.run_cli("start", "--port", "0", "--no-legacy")
+        self.run_cli("participants", "set", "Alice", "Waiting")
+        request_value = {
+            "id": "d" * 32,
+            "kind": "plan_approval",
+            "prompt": "Approve the session?",
+            "options": [
+                {"id": "approve", "label": "Approve"},
+                {"id": "edit", "label": "Edit"},
+            ],
+            "session": json.loads(self.session_json()),
+        }
+        requested = self.run_cli(
+            "--json", "decision", "request", "--stdin",
+            input_text=json.dumps(request_value),
+        )
+        self.assertEqual(json.loads(requested.stdout)["decision"]["id"], "d" * 32)
+        resolved = self.run_cli(
+            "--json", "decision", "resolve", "d" * 32, "approve",
+            "--option-id", "approve",
+        )
+        self.assertEqual(json.loads(resolved.stdout)["resolution"]["action"], "approve")
+        duplicate = self.run_cli(
+            "--json", "decision", "resolve", "d" * 32, "approve",
+            "--option-id", "approve",
+        )
+        self.assertTrue(json.loads(duplicate.stdout)["duplicate"])
 
     @unittest.skipIf(SKIP_PROCESS_TESTS, PROCESS_SKIP_REASON)
     def test_invalid_replay_does_not_create_a_session(self):

@@ -109,6 +109,182 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(normalized["schema_version"], state["schema_version"])
         self.assertEqual(normalized["session"]["status"], "idle")
 
+    def test_v1_snapshot_migrates_to_v2_defaults(self):
+        state = deepcopy(initial_state())
+        state["schema_version"] = 1
+        for field in ("workflow", "pending_decision", "run", "result"):
+            state["session"].pop(field)
+        normalized = validate_persisted_state(state)
+        self.assertEqual(normalized["schema_version"], 2)
+        self.assertEqual(normalized["session"]["workflow"]["strategy"], "parallel_panel")
+        self.assertEqual(normalized["session"]["workflow"]["approval"], "legacy")
+        self.assertIsNone(normalized["session"]["pending_decision"])
+
+    def test_validates_workflow_decision_run_and_result(self):
+        value = self.session(status="waiting_user")
+        value["workflow"] = {
+            "strategy": "critic_revise",
+            "approval": "required",
+            "limits": {
+                "max_rounds": 3,
+                "max_participants": 3,
+                "max_retries": 1,
+                "wall_time_seconds": 900,
+            },
+        }
+        value["pending_decision"] = {
+            "id": "b" * 32,
+            "kind": "plan_approval",
+            "prompt": "是否批准？",
+            "options": [{"id": "approve", "label": "批准", "description": "开始执行"}],
+            "created_at": "2026-08-15T00:00:00+00:00",
+        }
+        value["run"] = {
+            "id": "run-1",
+            "started_at": "2026-08-15T00:00:00+00:00",
+            "updated_at": "2026-08-15T00:00:01+00:00",
+            "participants": [{"name": "A", "status": "pending", "attempt": 0}],
+            "round_summaries": [{
+                "round": 1,
+                "consensus": ["目标明确"],
+                "disagreements": [],
+                "evidence": ["message:1"],
+                "open_questions": ["等待批准"],
+            }],
+        }
+        value["result"] = {
+            "summary": "尚未执行",
+            "criteria": [{"text": "结论明确", "status": "unmet", "evidence": []}],
+            "disagreements": [],
+            "next_actions": ["等待用户"],
+        }
+        normalized = validate_session(value, ["A", "B"])
+        self.assertEqual(normalized["workflow"]["strategy"], "critic_revise")
+        self.assertEqual(normalized["pending_decision"]["id"], "b" * 32)
+        self.assertEqual(normalized["run"]["participants"][0]["status"], "pending")
+        self.assertEqual(normalized["result"]["criteria"][0]["status"], "unmet")
+
+    def test_rejects_pending_decision_outside_waiting_user(self):
+        value = self.session()
+        value["pending_decision"] = {
+            "id": "c" * 32,
+            "kind": "checkpoint",
+            "prompt": "Continue?",
+            "options": [{"id": "yes", "label": "Yes"}],
+            "created_at": "",
+        }
+        with self.assertRaises(ValidationError) as caught:
+            validate_session(value, ["A", "B"])
+        self.assertEqual(caught.exception.code, "invalid_pending_decision")
+
+    def test_allows_preplan_clarification_without_fabricating_a_plan(self):
+        value = {
+            "status": "waiting_user",
+            "criteria": [],
+            "roles": [],
+            "round": {
+                "current": 0,
+                "max": 3,
+                "phase": "not_started",
+                "completed_participants": [],
+            },
+            "pending_decision": {
+                "id": "f" * 32,
+                "kind": "clarification",
+                "prompt": "What outcome should the panel deliver?",
+                "options": [{"id": "recommendation", "label": "Recommendation"}],
+                "created_at": "",
+            },
+        }
+        normalized = validate_session(value, [])
+        self.assertEqual(normalized["status"], "waiting_user")
+        self.assertEqual(normalized["round"]["current"], 0)
+        self.assertEqual(normalized["roles"], [])
+
+    def test_v2_workflow_cannot_run_before_approval(self):
+        value = self.session()
+        value["workflow"] = {
+            "strategy": "parallel_panel",
+            "approval": "required",
+            "limits": {"max_rounds": 3, "max_participants": 3, "max_retries": 1},
+        }
+        with self.assertRaises(ValidationError) as caught:
+            validate_session(value, ["A", "B"])
+        self.assertEqual(caught.exception.code, "approval_required")
+
+        value["workflow"]["approval"] = "legacy"
+        with self.assertRaises(ValidationError) as caught:
+            validate_session(value, ["A", "B"])
+        self.assertEqual(caught.exception.code, "invalid_workflow_approval")
+
+    def test_waiting_v2_workflow_requires_a_persisted_decision(self):
+        value = self.session(status="waiting_user")
+        value["workflow"] = {
+            "strategy": "parallel_panel",
+            "approval": "required",
+            "limits": {"max_rounds": 3, "max_participants": 3, "max_retries": 1},
+        }
+        with self.assertRaises(ValidationError) as caught:
+            validate_session(value, ["A", "B"])
+        self.assertEqual(caught.exception.code, "missing_pending_decision")
+
+    def test_v2_workflow_enforces_round_and_retry_budgets(self):
+        value = self.session()
+        value["workflow"] = {
+            "strategy": "parallel_panel",
+            "approval": "approved",
+            "limits": {"max_rounds": 2, "max_participants": 2, "max_retries": 0},
+        }
+        value["round"]["max"] = 2
+        value["run"] = {
+            "participants": [{"name": "A", "status": "failed", "attempt": 2}],
+            "round_summaries": [],
+        }
+        with self.assertRaises(ValidationError) as caught:
+            validate_session(value, ["A", "B"])
+        self.assertEqual(caught.exception.code, "retry_budget_exceeded")
+
+        value["run"] = {
+            "participants": [{"name": "A", "status": "failed", "attempt": 1}],
+            "round_summaries": [{
+                "round": 3,
+                "consensus": [],
+                "disagreements": [],
+                "evidence": [],
+                "open_questions": [],
+            }],
+        }
+        with self.assertRaises(ValidationError) as caught:
+            validate_session(value, ["A", "B"])
+        self.assertEqual(caught.exception.code, "round_budget_exceeded")
+
+    def test_completed_v2_workflow_requires_all_criteria_met(self):
+        value = self.session(status="completed")
+        value["workflow"] = {
+            "strategy": "critic_revise",
+            "approval": "approved",
+            "limits": {"max_rounds": 3, "max_participants": 3, "max_retries": 1},
+        }
+        value["result"] = {
+            "summary": "部分完成",
+            "criteria": [
+                {"text": "结论明确", "status": "met", "evidence": ["message:1"]},
+                {"text": "风险已列出", "status": "partial", "evidence": []},
+            ],
+            "disagreements": [],
+            "next_actions": ["补齐风险"],
+        }
+        with self.assertRaises(ValidationError) as caught:
+            validate_session(value, ["A", "B"])
+        self.assertEqual(caught.exception.code, "completion_criteria_unmet")
+
+        value["result"]["criteria"][1] = {
+            "text": "风险已列出",
+            "status": "met",
+            "evidence": ["message:2"],
+        }
+        self.assertEqual(validate_session(value, ["A", "B"])["status"], "completed")
+
     def test_validates_active_session_and_role_references(self):
         normalized = validate_session(self.session(), ["A", "B"])
         self.assertEqual(normalized["round"]["max"], 3)

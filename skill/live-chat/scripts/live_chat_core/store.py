@@ -39,7 +39,11 @@ class StateStore:
         if self.path.exists():
             try:
                 with self.path.open("r", encoding="utf-8") as handle:
-                    return validate_persisted_state(json.load(handle))
+                    raw_state = json.load(handle)
+                state = validate_persisted_state(raw_state)
+                if raw_state.get("schema_version") != state["schema_version"]:
+                    self._persist(state)
+                return state
             except (OSError, ValueError, ValidationError) as exc:
                 raise RuntimeError("cannot load state snapshot: %s" % exc) from exc
         if self.legacy_path and self.legacy_path.is_file():

@@ -475,10 +475,10 @@ def _export(args):
         state = _request_json(url + "/api/state?since=0&session=" + session_id)
         for field in ("protocol_version", "instance_id"):
             state.pop(field, None)
-        payload = {"format": "live-chat-export/v1", "kind": "snapshot", "session_id": session_id, "state": state}
+        payload = {"format": "live-chat-export/v2", "kind": "snapshot", "session_id": session_id, "state": state}
     else:
         history = _request_json(url + "/api/events?after=0&session=" + session_id)
-        payload = {"format": "live-chat-export/v1", "kind": "events", "session_id": session_id, "events": history["events"]}
+        payload = {"format": "live-chat-export/v2", "kind": "events", "session_id": session_id, "events": history["events"]}
     output = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
     if args.file:
         try:
@@ -498,7 +498,10 @@ def _read_export(path):
             value = json.load(handle)
     except (OSError, ValueError) as exc:
         raise CliError("cannot read replay export: %s" % exc) from exc
-    if not isinstance(value, dict) or value.get("format") != "live-chat-export/v1":
+    if not isinstance(value, dict) or value.get("format") not in {
+        "live-chat-export/v1",
+        "live-chat-export/v2",
+    }:
         raise CliError("unsupported replay export format")
     return value
 
@@ -599,6 +602,51 @@ def _events(args):
         raise CliError("event input must be an object")
     result = _request_json(url + "/api/events", method="POST", payload=value, timeout=8)
     _emit(args, result, "[live-chat] 事件已提交")
+    return 0
+
+
+def _decision(args):
+    url = _feature_url(args, "decisions")
+    if args.action == "request":
+        if bool(args.file) == bool(args.stdin):
+            raise CliError("decision request requires exactly one of --file or --stdin")
+        try:
+            text = sys.stdin.read() if args.stdin else Path(args.file).read_text(encoding="utf-8")
+            payload = json.loads(text)
+        except (OSError, ValueError) as exc:
+            raise CliError("cannot read decision JSON: %s" % exc) from exc
+        if not isinstance(payload, dict):
+            raise CliError("decision request must be a JSON object")
+        if args.session_id:
+            payload["session_id"] = args.session_id
+        payload.setdefault("source", {"host": args.host})
+        result = _request_json(url + "/api/decisions", method="POST", payload=payload, timeout=8)
+    else:
+        sources = int(args.stdin) + int(bool(args.file)) + int(bool(args.response))
+        if sources > 1:
+            raise CliError("provide decision response using --response, --stdin, or --file")
+        try:
+            if args.stdin:
+                response = sys.stdin.read()
+            elif args.file:
+                response = Path(args.file).read_text(encoding="utf-8")
+            else:
+                response = args.response or ""
+        except OSError as exc:
+            raise CliError("cannot read decision response: %s" % exc) from exc
+        payload = {
+            "id": args.decision_id,
+            "action": args.resolution,
+            "option_id": args.option_id or "",
+            "response": response,
+            "source": {"host": args.host},
+        }
+        if args.session_id:
+            payload["session_id"] = args.session_id
+        result = _request_json(
+            url + "/api/decisions/resolve", method="POST", payload=payload, timeout=8
+        )
+    _emit(args, result, "[live-chat] 决策状态已更新")
     return 0
 
 
@@ -868,6 +916,29 @@ def build_parser():
     events.add_argument("action", choices=("emit",))
     events.add_argument("--stdin", action="store_true", required=True)
     events.set_defaults(handler=_events)
+
+    decision = commands.add_parser("decision", help="request or resolve a human decision")
+    decision_commands = decision.add_subparsers(dest="action", required=True)
+    decision_request = decision_commands.add_parser("request", help="request a decision")
+    decision_request.add_argument("--file")
+    decision_request.add_argument("--stdin", action="store_true")
+    decision_request.add_argument("--session-id")
+    decision_request.add_argument(
+        "--host", choices=tuple(HOST_ADAPTERS) + ("manual",), default="manual"
+    )
+    decision_request.set_defaults(handler=_decision)
+    decision_resolve = decision_commands.add_parser("resolve", help="resolve a pending decision")
+    decision_resolve.add_argument("decision_id")
+    decision_resolve.add_argument("resolution", choices=("approve", "edit", "reject", "respond"))
+    decision_resolve.add_argument("--option-id")
+    decision_resolve.add_argument("--response")
+    decision_resolve.add_argument("--file")
+    decision_resolve.add_argument("--stdin", action="store_true")
+    decision_resolve.add_argument("--session-id")
+    decision_resolve.add_argument(
+        "--host", choices=tuple(HOST_ADAPTERS) + ("manual",), default="manual"
+    )
+    decision_resolve.set_defaults(handler=_decision)
 
     adapter = commands.add_parser("adapter", help="show host adapter metadata")
     adapter.add_argument("action", choices=("show",))

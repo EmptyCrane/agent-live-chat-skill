@@ -1,0 +1,53 @@
+{
+  "format": "live-chat-behavior-eval/v1",
+  "scenarios": [
+    {
+      "id": "complete-direct-request",
+      "locale": "en",
+      "request": "Compare two migration plans and give a recommendation. Start directly.",
+      "expects": ["explicit_bypass", "bounded_workflow", "criteria_completion"]
+    },
+    {
+      "id": "ambiguous-request",
+      "locale": "en",
+      "request": "Have a few agents review this.",
+      "expects": ["single_batch_questions", "approval_before_dispatch"]
+    },
+    {
+      "id": "chinese-plan-first",
+      "locale": "zh-CN",
+      "request": "让多个角色评审这个方案，先给我看计划。",
+      "expects": ["single_batch_questions", "approval_before_dispatch", "user_language"]
+    },
+    {
+      "id": "english-plan-first",
+      "locale": "en",
+      "request": "Run a security and usability review after I approve the panel.",
+      "expects": ["approval_before_dispatch", "user_language"]
+    },
+    {
+      "id": "no-subagents",
+      "locale": "en",
+      "request": "Show me a live panel on this design.",
+      "expects": ["no_simulated_agents", "capability_fallback"]
+    },
+    {
+      "id": "model-unavailable",
+      "locale": "en",
+      "request": "Use a requested model for every reviewer.",
+      "expects": ["model_fallback_decision", "approval_before_dispatch"]
+    },
+    {
+      "id": "pause-resume",
+      "locale": "en",
+      "request": "Pause now, then continue the current round.",
+      "expects": ["resume_only_unfinished", "persisted_decision"]
+    },
+    {
+      "id": "user-rejects",
+      "locale": "zh-CN",
+      "request": "我拒绝这个会话方案。",
+      "expects": ["reject_stops_dispatch", "persisted_decision"]
+    }
+  ]
+}

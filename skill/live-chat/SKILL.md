@@ -19,13 +19,17 @@ Read `references/hosts.md` for host-specific discovery, browser behavior, and in
 
 If Python or shell execution is unavailable, explain that the local service cannot run and stop. If subagents are unavailable, offer replay/manual-push mode and state clearly that live multi-agent orchestration is unavailable. Never generate several fictional agents with one model while describing them as real subagents.
 
-## Define the session with minimal questions
+## Define and approve the session
 
-Extract background, objective, deliverable, one to five completion criteria, and constraints from the request. Treat requested models, reasoning effort, tone, style, and persona rules as constraints. Start immediately when objective and deliverable are sufficient. Otherwise ask once for only the missing critical information.
+Use a host-neutral plan-first intake. Do not attempt to switch the host's collaboration mode. If the host is already in Plan Mode, use its question surface; otherwise follow the same intake in the current mode.
+
+Extract background, objective, deliverable, one to five completion criteria, language, constraints, requested roles, model policy, time budget, and explicit approval bypass from the request. Reuse information already present. Ask one compact batch containing only missing choices that materially change the session.
+
+Choose a workflow strategy, roles, round limit, retry limit, and completion test. Show a concise proposal in the user's language. Do not dispatch subagents until the user approves it. Treat only explicit wording such as "start directly" or "无需确认" as approval bypass; urgency alone is not a bypass. On approval record `workflow.approval=approved`; on an explicit bypass record `bypassed`.
 
 Before dispatching real subagents, read `references/orchestration.md` for role selection, prompt fields, model resolution, round transitions, completion, and recovery. Keep responsibilities and behavior separate from model requests. Do not infer host availability from a vendor catalog: probe the active host surface, and never guess an effective model.
 
-Tell the user which roles will participate, that the default is at most three rounds, and that they can pause, continue, or stop at any time.
+Tell the user which roles and strategy will participate, that the default is at most three roles and three rounds with one retry per role, and that they can pause, continue, or stop at any time.
 
 ## Start the local display
 
@@ -49,6 +53,8 @@ python <skill>/scripts/live_chat.py --json sessions create --title "Topic"
 
 Keep the returned `session_id`. Existing commands write to the active conversation. Never reset or seed another conversation to start a new task.
 
+For a proposal that requires confirmation, register the proposed roles and submit one `plan_approval` decision containing the full draft session through `decision request --stdin`. Wait for the host user's `approve`, `edit`, `reject`, or `respond` answer, then persist it with `decision resolve`. An approval leaves the session paused; set it to running only immediately before real dispatch. If the user edits the proposal, issue a new decision with a new ID after applying the edit.
+
 Reset the scene, register every role in display order, then set a complete session document:
 
 ```text
@@ -59,9 +65,9 @@ python <skill>/scripts/live_chat.py session set --stdin
 
 An active session must contain objective, deliverable, one to five criteria, a model policy, at least two registered roles, and current round state. Read `references/protocol.md` before constructing or changing session JSON.
 
-## Run goal-driven rounds
+## Run goal-driven strategies
 
-Follow the three-phase soft guardrail in `references/orchestration.md`, using no more than three rounds by default:
+Select one bounded strategy in `references/orchestration.md`: `parallel_panel`, `sequential_pipeline`, `critic_revise`, or `debate_judge`. Follow its three-phase soft guardrail, using no more than three roles and three rounds by default:
 
 1. `independent`: collect independent views without cross-anchoring.
 2. `challenge`: challenge disagreements, evidence, and risk.
@@ -71,19 +77,23 @@ Respect a user-specified limit. End early when the objective is met.
 
 At each round start, atomically set `status=running`, round number, phase, and an empty `completed_participants`, then push a system separator. Turn typing on before dispatching each participant.
 
+Record run and participant lifecycle metadata without hidden reasoning: run ID, pending/running/completed/failed/skipped status, attempt number, timestamps, duration, and stable error code. After each round, persist a compact summary of consensus, disagreements, evidence, and open questions. Give the next round only the background and summary it needs, not the complete transcript.
+
 For every real reply, in actual completion order:
 
 1. Turn that participant's typing off in a `finally`-equivalent path.
 2. Push the unmodified reply through stdin.
 3. Add the participant to `completed_participants` only after a successful push.
 
-After each round, evaluate the deliverable, every completion criterion, material disagreements, and choices only the user can make. Complete only when the goal is met; otherwise continue, set `waiting_user` at the limit, or set `partial_failure` when a necessary role fails. Do not report completion merely because the round limit was reached.
+After each round, evaluate the deliverable, every completion criterion, material disagreements, and choices only the user can make. Persist a result with each criterion marked `met`, `partial`, or `unmet` and linked to visible evidence. Complete only when the goal is met; otherwise continue, request a checkpoint decision for a material user choice, set `waiting_user` at the limit, or set `partial_failure` when a necessary role fails. Do not report completion merely because the round limit was reached.
 
 ## Pause, resume, stop, and failure
 
 On pause, stop new dispatches, preserve received replies, clear typing, record completed participants, and set `paused`. Interrupt running subagents only when the host supports it; otherwise state that in-flight work cannot be force-cancelled and ignore late results until continuation. On continue, restore the persisted session and dispatch only unfinished roles, following the recovery rules in `references/orchestration.md` without silent model substitution.
 
 On stop, clear typing and set `stopped` with a reason. Keep the page, messages, objective, and roster available.
+
+Use structured decisions only for plan approval, missing critical information, model fallback, material disagreement, exhausted budget, or an external side effect that needs authority. Never expose hidden chain-of-thought as a trace; record only visible messages, summaries, decisions, lifecycle metadata, and errors.
 
 ## Preserve and replay history
 

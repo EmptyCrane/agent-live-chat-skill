@@ -38,14 +38,16 @@ async function main() {
   function makeSession(status = 'running', language = 'zh-CN') {
     const terminal = ['waiting_user', 'completed', 'stopped', 'partial_failure'].includes(status);
     const english = language === 'en';
-    return {
+    const criteria = english
+      ? ['Every role contributes', 'Key risks are explicit', 'Next steps are actionable']
+      : ['角色观点完整', '关键风险明确', '下一步可以执行'];
+    const names = english ? ['Architect', 'Critic', 'Operator'] : ['成员 1', '成员 2', '成员 3'];
+    const session = {
       status,
       background: english ? 'The live view is ready for an international release review' : '新版直播页面已完成名册和主题升级',
       objective: english ? 'Confirm the goal-driven review is clear and converges reliably' : '确认目标驱动式群聊能清晰展示进度并可靠收敛',
       deliverable: english ? 'An actionable UX and reliability recommendation' : '一份可执行的体验与可靠性改进结论',
-      criteria: english
-        ? ['Every role contributes', 'Key risks are explicit', 'Next steps are actionable']
-        : ['角色观点完整', '关键风险明确', '下一步可以执行'],
+      criteria,
       model_policy: {
         default: 'balanced-model',
         reasoning_effort: 'medium',
@@ -84,8 +86,45 @@ async function main() {
         phase: terminal ? 'synthesis' : (status === 'paused' ? 'challenge' : 'independent'),
         completed_participants: status === 'paused' ? [english ? 'Architect' : '成员 1'] : [],
       },
+      workflow: {
+        strategy: 'parallel_panel',
+        approval: status === 'waiting_user' ? 'required' : 'approved',
+        limits: { max_rounds: 3, max_participants: 3, max_retries: 1, wall_time_seconds: 900 },
+      },
+      pending_decision: status === 'waiting_user' ? {
+        id: 'a'.repeat(32),
+        kind: 'checkpoint',
+        prompt: english ? 'Continue with one focused round?' : '是否继续一轮聚焦评审？',
+        options: [
+          { id: 'continue', label: english ? 'Continue' : '继续', description: '' },
+          { id: 'stop', label: english ? 'Stop' : '停止', description: '' },
+        ],
+        created_at: '2026-08-15T00:00:00+00:00',
+      } : null,
+      run: {
+        id: 'visual-run',
+        started_at: '2026-08-15T00:00:00+00:00',
+        updated_at: '2026-08-15T00:00:02+00:00',
+        participants: names.map((name, index) => ({
+          name,
+          status: status === 'partial_failure' && index === 1 ? 'failed' : (terminal ? 'completed' : 'pending'),
+          attempt: 1,
+          started_at: '',
+          ended_at: '',
+          duration_ms: null,
+          error_code: status === 'partial_failure' && index === 1 ? 'host_failure' : '',
+        })),
+        round_summaries: [],
+      },
+      result: status === 'completed' ? {
+        summary: english ? 'All review criteria are met.' : '全部评审条件已满足。',
+        criteria: criteria.map((text, index) => ({ text, status: 'met', evidence: [`message:${index + 1}`] })),
+        disagreements: [],
+        next_actions: [english ? 'Proceed to implementation.' : '进入实现阶段。'],
+      } : null,
       stop_reason: status === 'running' ? '' : (english ? 'Visual acceptance state' : '用于会话状态视觉验收'),
     };
+    return session;
   }
 
   async function seedFixture(language) {
@@ -118,7 +157,7 @@ async function main() {
     const context = await browser.newContext({ viewport: { width: 360, height: 760 }, colorScheme: 'light' });
     try {
       const page = await context.newPage();
-      await page.goto(url + '?lang=zh-CN', { waitUntil: 'networkidle' });
+      await page.goto(url + '?lang=zh-CN', { waitUntil: 'domcontentloaded' });
       await page.waitForFunction(
         expected => Number(document.getElementById('member-total').textContent) === expected,
         expectedMembers,
@@ -153,6 +192,8 @@ async function main() {
       subtitle: 'Read-only selector check',
     });
     const archivedSessionId = archivedCreated.session.session_id;
+    await post('/api/participants', { participants: ['Architect', 'Critic', 'Operator'] });
+    await post('/api/session', { session: makeSession('completed', 'en') });
     await post('/api/msg', { sender: 'History agent', text: 'Archived message remains readable.' });
     await post('/api/sessions/select', { session_id: liveSessionId });
     await post('/api/sessions/archive', { session_id: archivedSessionId });
@@ -163,7 +204,7 @@ async function main() {
     historyPage.on('request', request => {
       if (request.method() !== 'GET') pagePosts.push(request.method() + ' ' + request.url());
     });
-    await historyPage.goto(url + '?lang=en', { waitUntil: 'networkidle' });
+    await historyPage.goto(url + '?lang=en', { waitUntil: 'domcontentloaded' });
     await historyPage.waitForFunction(() => document.querySelectorAll('#rail-session-select option').length >= 2);
     await historyPage.locator('#rail-session-select').selectOption(archivedSessionId);
     await historyPage.waitForFunction(
@@ -180,6 +221,23 @@ async function main() {
     if (!historyCheck.archivedLabel.includes('archived') || pagePosts.length) {
       throw new Error('history selector is not read-only: ' + JSON.stringify({ historyCheck, pagePosts }));
     }
+    await historyPage.locator('#message-search').fill('not-present');
+    if (await historyPage.locator('.message-row:not([hidden])').count()) {
+      throw new Error('message search did not filter the history');
+    }
+    await historyPage.locator('#message-search').fill('Archived');
+    await historyPage.locator('#message-participant').selectOption('History agent');
+    if (await historyPage.locator('.message-row:not([hidden])').count() !== 1) {
+      throw new Error('participant filter did not preserve the matching message');
+    }
+    await historyPage.locator('#rail-compare').click();
+    await historyPage.waitForFunction(() => !document.getElementById('rail-comparison').hidden);
+    historyCheck.comparison = await historyPage.locator('#rail-comparison').textContent();
+    if (!historyCheck.comparison.includes('All review criteria are met.')
+        || !historyCheck.comparison.includes('3/3 criteria met')
+        || pagePosts.length) {
+      throw new Error('session comparison is unavailable or not read-only');
+    }
     await historyContext.close();
 
     for (const item of cases) {
@@ -189,7 +247,7 @@ async function main() {
         reducedMotion: item.reducedMotion || 'no-preference',
       });
       const page = await context.newPage();
-      await page.goto(url + '?lang=zh-CN', { waitUntil: 'networkidle' });
+      await page.goto(url + '?lang=zh-CN', { waitUntil: 'domcontentloaded' });
       await page.waitForFunction(() => document.querySelectorAll('.message-row').length >= 1);
       if (item.openMembers) {
         await page.locator('#member-trigger').click();
@@ -265,7 +323,7 @@ async function main() {
           colorScheme,
         });
         const page = await context.newPage();
-        await page.goto(url + '?lang=zh-CN', { waitUntil: 'networkidle' });
+        await page.goto(url + '?lang=zh-CN', { waitUntil: 'domcontentloaded' });
         await page.waitForFunction(expected => document.getElementById('session-bar').dataset.status === expected, status);
         const value = await page.evaluate(() => ({
           status: document.getElementById('session-bar').dataset.status,
@@ -287,10 +345,10 @@ async function main() {
 
     const themeContext = await browser.newContext({ viewport: { width: 400, height: 760 }, colorScheme: 'dark' });
     const themePage = await themeContext.newPage();
-    await themePage.goto(url + '?lang=en', { waitUntil: 'networkidle' });
+    await themePage.goto(url + '?lang=en', { waitUntil: 'domcontentloaded' });
     await themePage.locator('#theme-toggle').click();
     await themePage.locator('#theme-toggle').click();
-    await themePage.reload({ waitUntil: 'networkidle' });
+    await themePage.reload({ waitUntil: 'domcontentloaded' });
     const rememberedTheme = await themePage.evaluate(() => ({
       attribute: document.documentElement.getAttribute('data-theme'),
       stored: localStorage.getItem('live-chat-theme'),
@@ -306,7 +364,7 @@ async function main() {
       Object.defineProperty(window, 'localStorage', { configurable: true, get() { throw new Error('blocked'); } });
     });
     const blockedPage = await blockedStorage.newPage();
-    await blockedPage.goto(url + '?lang=zh-CN', { waitUntil: 'networkidle' });
+    await blockedPage.goto(url + '?lang=zh-CN', { waitUntil: 'domcontentloaded' });
     const storageFallback = await blockedPage.evaluate(() => ({
       attribute: document.documentElement.getAttribute('data-theme'),
       label: document.getElementById('theme-toggle').getAttribute('aria-label'),
@@ -324,7 +382,7 @@ async function main() {
       });
       try {
         const page = await context.newPage();
-        await page.goto(url + '?lang=' + encodeURIComponent(language), { waitUntil: 'networkidle' });
+        await page.goto(url + '?lang=' + encodeURIComponent(language), { waitUntil: 'domcontentloaded' });
         await page.waitForFunction(() => document.querySelectorAll('.message-row').length >= 6);
         const value = await page.evaluate(() => ({
           language: document.documentElement.lang,

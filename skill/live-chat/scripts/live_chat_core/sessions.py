@@ -21,7 +21,16 @@ from .config import (
 from .io_utils import atomic_json, atomic_jsonl
 from .models import initial_state
 from .store import StateStore
-from .validation import ValidationError, utf8_safe_text, validate_persisted_state, validate_scene
+from .validation import (
+    DECISION_ACTIONS,
+    DECISION_ID,
+    ValidationError,
+    utf8_safe_text,
+    validate_pending_decision,
+    validate_persisted_state,
+    validate_scene,
+    validate_session,
+)
 
 
 MAX_EVENTS = 5000
@@ -38,6 +47,25 @@ EVENT_TYPES = frozenset({
     "message.created",
     "typing.changed",
     "typing.cleared",
+    "decision.requested",
+    "decision.resolved",
+    "round.started",
+    "round.completed",
+    "participant.started",
+    "participant.completed",
+    "participant.failed",
+    "run.completed",
+})
+SESSION_EVENT_TYPES = frozenset({
+    "plan.updated",
+    "decision.requested",
+    "decision.resolved",
+    "round.started",
+    "round.completed",
+    "participant.started",
+    "participant.completed",
+    "participant.failed",
+    "run.completed",
 })
 SESSION_ID = re.compile(r"^[0-9a-f]{32}$")
 
@@ -281,7 +309,7 @@ class SessionStore:
         for index, event in enumerate(events, 1):
             if (
                 not isinstance(event, dict)
-                or event.get("event_version") != EVENT_PROTOCOL_VERSION
+                or event.get("event_version") not in (1, EVENT_PROTOCOL_VERSION)
                 or event.get("session_id") != session_id
                 or event.get("seq") != index
                 or not isinstance(event.get("event_id"), str)
@@ -310,7 +338,7 @@ class SessionStore:
             return "typing", {"clear": True}
         if event_type == "participants.replaced":
             return "participants", payload.get("participants")
-        if event_type == "plan.updated":
+        if event_type in SESSION_EVENT_TYPES:
             if "session" not in payload:
                 raise ValidationError("invalid_session", "event payload must contain session")
             return "session", payload.get("session")
@@ -417,11 +445,13 @@ class SessionStore:
             value["session_id"] = session_id
             return value
 
-    def summary(self):
-        """Return active-session health metadata without copying messages."""
+    def summary(self, session_id=None):
+        """Return session health metadata without copying messages."""
         with self._lock:
-            _, store = self._store()
-            return store.summary()
+            session_id, store = self._store(session_id)
+            value = store.summary()
+            value["session_id"] = session_id
+            return value
 
     def validate_all(self):
         with self._lock:
@@ -519,6 +549,173 @@ class SessionStore:
             history = self._read_events(session_id)
             events = [event for event in history if event["seq"] > after]
             return {"session_id": session_id, "events": events, "total": len(history)}
+
+    def request_decision(self, value, session_id=None, source=None):
+        if not isinstance(value, dict):
+            raise ValidationError("invalid_decision", "decision request must be an object")
+        with self._lock:
+            session_id, store = self._store(session_id, writable=True)
+            provided_created_at = value.get("created_at")
+            decision = validate_pending_decision({
+                "id": value.get("id") or uuid.uuid4().hex,
+                "kind": value.get("kind", "clarification"),
+                "prompt": value.get("prompt", ""),
+                "options": value.get("options", []),
+                "created_at": value.get("created_at") or _utc_now(),
+            })
+            matching_request = None
+            for event in self._read_events(session_id):
+                previous = event.get("payload", {}).get("decision")
+                if isinstance(previous, dict) and previous.get("id") == decision["id"]:
+                    if event["type"] == "decision.requested":
+                        matching_request = (event, previous)
+                        break
+            if matching_request:
+                event, previous = matching_request
+                if not provided_created_at:
+                    decision["created_at"] = previous["created_at"]
+                same_session = True
+                if "session" in value:
+                    proposed = deepcopy(value["session"])
+                    proposed["pending_decision"] = decision
+                    proposed["status"] = "waiting_user"
+                    if decision["kind"] == "plan_approval":
+                        proposed.setdefault("workflow", {})["approval"] = "required"
+                    normalized_proposed = validate_session(
+                        proposed,
+                        store.snapshot(0)["participants"],
+                    )
+                    normalized_previous = validate_session(
+                        event.get("payload", {}).get("session"),
+                        store.snapshot(0)["participants"],
+                    )
+                    same_session = normalized_proposed == normalized_previous
+                if previous == decision and same_session:
+                    return {"ok": True, "duplicate": True, "event": event, "decision": previous}
+                raise ValidationError(
+                    "decision_conflict", "decision id already has different content", 409
+                )
+            session = deepcopy(value.get("session", store.snapshot(0)["session"]))
+            if session.get("pending_decision") is not None:
+                raise ValidationError("decision_pending", "another decision is already pending", 409)
+            session["pending_decision"] = decision
+            session["status"] = "waiting_user"
+            if decision["kind"] == "plan_approval":
+                session.setdefault("workflow", {})["approval"] = "required"
+            canonical, results = self._emit([{
+                "event_id": "decision-request-" + decision["id"],
+                "type": "decision.requested",
+                "source": source or value.get("source") or {"host": "manual"},
+                "payload": {"decision": decision, "session": session},
+            }], session_id)
+            return {
+                "ok": True,
+                "event": canonical[0],
+                "decision": decision,
+                "result": results[0],
+            }
+
+    def resolve_decision(self, value, session_id=None, source=None):
+        if not isinstance(value, dict):
+            raise ValidationError("invalid_decision", "decision resolution must be an object")
+        decision_id = _bounded_text(value.get("id", ""), "decision.id", 32)
+        if not DECISION_ID.fullmatch(decision_id):
+            raise ValidationError(
+                "invalid_decision_id", "decision id must be 32 lowercase hex characters"
+            )
+        action = _bounded_text(value.get("action", ""), "decision.action", 16)
+        if action not in DECISION_ACTIONS:
+            raise ValidationError(
+                "invalid_decision_action",
+                "decision action must be one of: %s" % ", ".join(sorted(DECISION_ACTIONS)),
+            )
+        response = _bounded_text(
+            value.get("response", ""), "decision.response", 2000, allow_empty=True
+        )
+        option_id = _bounded_text(
+            value.get("option_id", ""), "decision.option_id", 32, allow_empty=True
+        )
+        if action in {"edit", "respond"} and not response:
+            raise ValidationError(
+                "invalid_decision_response", "%s requires a non-empty response" % action
+            )
+        requested_resolution = {
+            "action": action,
+            "option_id": option_id,
+            "response": response,
+        }
+        with self._lock:
+            session_id, store = self._store(session_id, writable=True)
+            history = self._read_events(session_id)
+            for event in reversed(history):
+                payload = event.get("payload", {})
+                previous = payload.get("decision")
+                if event["type"] == "decision.resolved" and isinstance(previous, dict):
+                    if previous.get("id") != decision_id:
+                        continue
+                    resolution = payload.get("resolution", {})
+                    comparable = {
+                        field: resolution.get(field, "")
+                        for field in ("action", "option_id", "response")
+                    }
+                    if comparable == requested_resolution:
+                        return {
+                            "ok": True,
+                            "duplicate": True,
+                            "event": event,
+                            "resolution": resolution,
+                        }
+                    raise ValidationError(
+                        "decision_conflict", "decision already has a different resolution", 409
+                    )
+            session = deepcopy(store.snapshot(0)["session"])
+            decision = session.get("pending_decision")
+            if not decision or decision.get("id") != decision_id:
+                raise ValidationError("unknown_decision", "pending decision does not exist", 404)
+            option_ids = {option["id"] for option in decision["options"]}
+            if option_id and option_id not in option_ids:
+                raise ValidationError("invalid_decision_option", "option_id is not offered")
+            resolution = dict(requested_resolution, resolved_at=_utc_now())
+            session["pending_decision"] = None
+            if decision["kind"] == "plan_approval":
+                if action == "approve":
+                    session["workflow"]["approval"] = "approved"
+                    session["status"] = "paused"
+                elif action == "reject":
+                    session["workflow"]["approval"] = "rejected"
+                    session["status"] = "stopped"
+                    session["stop_reason"] = response or "plan rejected"
+                else:
+                    session["workflow"]["approval"] = "required"
+                    session["status"] = "paused"
+            else:
+                has_plan = bool(
+                    session.get("objective")
+                    and session.get("deliverable")
+                    and session.get("roles")
+                )
+                if action == "reject" and has_plan:
+                    session["status"] = "stopped"
+                    session["stop_reason"] = response or "decision rejected"
+                else:
+                    session["status"] = "paused" if has_plan else "idle"
+            canonical, results = self._emit([{
+                "event_id": "decision-resolve-" + decision_id,
+                "type": "decision.resolved",
+                "source": source or value.get("source") or {"host": "manual"},
+                "payload": {
+                    "decision": decision,
+                    "resolution": resolution,
+                    "session": session,
+                },
+            }], session_id)
+            return {
+                "ok": True,
+                "event": canonical[0],
+                "decision": decision,
+                "resolution": resolution,
+                "result": results[0],
+            }
 
     def emit_event(self, value, session_id=None):
         events, results = self._emit([value], session_id)

@@ -34,7 +34,13 @@ python <entrypoint> status
 
 ## 页面显示重连中
 
-先运行 status。服务正常时刷新页面；服务不存在时重新 start。状态保存在独立快照中，重启后会恢复。
+先运行 status。服务正常时刷新页面；服务不存在时重新 start。页面优先使用 GET-only SSE 接收修订通知，代理或浏览器不支持时自动回退轮询，不影响状态正确性。状态保存在独立快照中，重启后会恢复。
+
+## 一直显示等待确认
+
+运行 status 并读取 session 的 `pending_decision`。宿主应把用户选择写入 `decision resolve <id> ...`，不能通过网页处理。若用户选择 edit 或 respond，应用修改后用新 ID 提交下一次必要确认；不要重复使用旧 ID。批准后状态为 paused，只有真正派发前才切换 running。
+
+若 resolve 返回冲突，说明同一决策 ID 已用不同内容解决。保留原决议并生成新的决策，不要编辑事件日志或删除状态文件。
 
 ## 输入提示残留
 
@@ -53,6 +59,8 @@ python <entrypoint> typing --clear
 ## 达到轮数上限仍未收敛
 
 将session设为 `waiting_user` 并在stop_reason列出缺少的完成条件。等待用户选择追加轮次、调整角色、修改目标或接受部分结果；不要自动无限追加。
+
+若 session set 返回 `retry_budget_exceeded`、`round_budget_exceeded` 或 `completion_criteria_unmet`，先修正运行轨迹或结果状态。不得为了通过校验提高预算、伪造证据或把 partial/unmet 改成 met。
 
 ## 状态文件损坏
 

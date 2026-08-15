@@ -15,7 +15,7 @@ async function main() {
   });
   try {
     const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
-    await page.goto(url, { waitUntil: 'networkidle' });
+    await page.goto(url, { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => {
       const bar = document.getElementById('session-bar');
       return bar && bar.dataset.status === 'completed';
