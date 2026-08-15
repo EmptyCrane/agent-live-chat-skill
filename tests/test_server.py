@@ -65,7 +65,7 @@ class ServerTests(unittest.TestCase):
     def test_health_message_and_incremental_state(self):
         _, health = self.request("/api/health")
         self.assertEqual(health["service"], "live-chat")
-        self.assertEqual(health["app_version"], "0.1.0-beta.8")
+        self.assertEqual(health["app_version"], "0.1.0-beta.9")
         self.assertEqual(health["instance_id"], "test-instance")
         self.request("/api/msg", "POST", {"sender": "Alice", "text": "One"})
         self.request("/api/msg", "POST", {"sender": "Bob", "text": "Two"})

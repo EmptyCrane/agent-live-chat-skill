@@ -20,7 +20,7 @@ class ReleaseTests(unittest.TestCase):
             capture_output=True,
             check=True,
         )
-        self.assertEqual(result.stdout.strip(), "0.1.0-beta.8")
+        self.assertEqual(result.stdout.strip(), "0.1.0-beta.9")
         self.assertEqual(
             {item.name for item in SKILL.iterdir()},
             {"SKILL.md", "agents", "assets", "scripts", "references"},
@@ -103,18 +103,34 @@ class ReleaseTests(unittest.TestCase):
             if line.lstrip().startswith("!["):
                 self.assertNotIn("releases/download/", line)
 
-    def test_readmes_pin_the_beta8_copy_installer(self):
+    def test_readmes_pin_the_beta9_copy_installer(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         chinese = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
         command = (
             "npx --yes skills add "
             "https://github.com/EmptyCrane/agent-live-chat-skill/releases/download/"
-            "v0.1.0-beta.8/live-chat-0.1.0-beta.8.zip "
+            "v0.1.0-beta.9/live-chat-0.1.0-beta.9.zip "
             "--global --agent codex --yes --copy"
         )
         self.assertEqual(readme.count(command), 1)
         self.assertEqual(chinese.count(command), 1)
         self.assertNotIn("v0.1.0-beta.6", readme + chinese)
+
+    def test_workflows_pin_node24_actions_by_immutable_commit(self):
+        workflows = "\n".join(
+            (ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")
+            for name in ("ci.yml", "release.yml")
+        )
+        expected = {
+            "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
+            "actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0",
+            "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0",
+            "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1",
+            "softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2",
+        }
+        for action in expected:
+            self.assertIn(action, workflows)
+        self.assertNotRegex(workflows, r"uses: [^\n]+@v\d")
 
     def test_python_ci_audits_the_candidate_commit(self):
         workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")

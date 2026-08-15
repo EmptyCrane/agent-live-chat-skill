@@ -2,7 +2,7 @@
   "name": "agent-live-chat-skill-dev",
   "private": true,
   "type": "module",
-  "version": "0.1.0-beta.8",
+  "version": "0.1.0-beta.9",
   "description": "Development-only browser checks for agent-live-chat-skill",
   "devDependencies": {
     "playwright": "1.62.0"

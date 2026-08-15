@@ -10,10 +10,10 @@ Watch real multi-agent work unfold in a local browser. Agent Live Chat gives an 
 
 ## Install in one command
 
-Install the audited `v0.1.0-beta.8` release globally for Codex:
+Install the audited `v0.1.0-beta.9` release globally for Codex:
 
 ```bash
-npx --yes skills add https://github.com/EmptyCrane/agent-live-chat-skill/releases/download/v0.1.0-beta.8/live-chat-0.1.0-beta.8.zip --global --agent codex --yes --copy
+npx --yes skills add https://github.com/EmptyCrane/agent-live-chat-skill/releases/download/v0.1.0-beta.9/live-chat-0.1.0-beta.9.zip --global --agent codex --yes --copy
 ```
 
 The command uses the open-source [`skills`](https://github.com/vercel-labs/skills) CLI. Node.js and npm are needed only for installation; the installed Skill runs on Python 3.9+ with no third-party runtime packages. `--copy` avoids symbolic-link permission requirements and places an independent copy in the CLI-managed global `~/.agents/skills/live-chat` directory. The repository installer below uses Codex's native `~/.codex/skills/live-chat` target instead.
@@ -153,7 +153,7 @@ See [SECURITY.md](SECURITY.md) for the threat boundary and private reporting pro
 ```bash
 python -m unittest discover -s tests -p "test_*.py" -v
 python tools/eval_skill.py --json
-python tools/package_release.py --version 0.1.0-beta.8
+python tools/package_release.py --version 0.1.0-beta.9
 ```
 
 Visual checks use the pinned Playwright development dependency:
@@ -167,7 +167,7 @@ Development dependencies, tests, state, logs, and documentation are excluded fro
 
 ## Beta status and limits
 
-- The pinned installer targets the audited `v0.1.0-beta.8` prerelease, with the Beta 7 session/event foundation plus ten bundled templates, adaptive role policies, explicit large-cast checkpoints, and wave-based dispatch metadata while continuing to read v1 data.
+- The pinned installer targets the audited `v0.1.0-beta.9` prerelease. It retains the Beta 8 templates and compatibility model while hardening UTF-8 CLI I/O, concurrent startup, shutdown completion, stale-instance diagnosis, and localized first rendering.
 - The bundled behavior evaluation is an offline policy-contract check; real host/model end-to-end acceptance remains a separate release gate.
 - Claude Code and GitHub Copilot are format-checked but not yet host-smoke-tested.
 - GitHub-hosted macOS runners currently skip the detached localhost lifecycle affected by [runner-images #14409](https://github.com/actions/runner-images/issues/14409); all other macOS coverage remains enabled, and Ubuntu validates the POSIX lifecycle.

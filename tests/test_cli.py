@@ -2,6 +2,8 @@ import contextlib
 import io
 import json
 import os
+import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -224,13 +226,13 @@ class CliTests(unittest.TestCase):
         started = self.run_cli("--json", "start", "--port", "0", "--no-legacy")
         instance = json.loads(started.stdout)
         self.assertTrue(instance["url"].startswith("http://127.0.0.1:"))
-        self.assertEqual(instance["app_version"], "0.1.0-beta.8")
+        self.assertEqual(instance["app_version"], "0.1.0-beta.9")
         self.run_cli("msg", "Alice", "--stdin", input_text="Line one\nLine two")
         self.run_cli("participants", "set", "Alice", "Waiting", "Alice")
         self.run_cli("session", "set", "--stdin", input_text=self.session_json())
         status = self.run_cli("--json", "status")
         value = json.loads(status.stdout)
-        self.assertEqual(value["app_version"], "0.1.0-beta.8")
+        self.assertEqual(value["app_version"], "0.1.0-beta.9")
         self.assertTrue(value["active_session_id"])
         self.assertEqual(len(value["sessions"]), 1)
         self.assertEqual(value["messages"], 1)
@@ -434,6 +436,80 @@ class CliTests(unittest.TestCase):
         replacement = json.loads(record_path.read_text(encoding="utf-8"))
         self.assertEqual(replacement["instance_id"], started["instance_id"])
         self.assertNotEqual(replacement["instance_id"], stale["instance_id"])
+
+    @unittest.skipIf(SKIP_PROCESS_TESTS, PROCESS_SKIP_REASON)
+    def test_external_port_occupancy_fails_without_disturbing_owner(self):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as owner:
+            owner.bind(("127.0.0.1", 0))
+            owner.listen(1)
+            port = owner.getsockname()[1]
+            failed = self.run_cli(
+                "start", "--port", str(port), "--no-legacy", check=False
+            )
+            self.assertNotEqual(failed.returncode, 0)
+            self.assertIn("already in use", failed.stderr)
+            self.assertFalse((self.state_dir / "instance.json").exists())
+            self.assertEqual(owner.getsockname()[1], port)
+
+        started = json.loads(
+            self.run_cli("--json", "start", "--port", str(port), "--no-legacy").stdout
+        )
+        self.assertEqual(started["port"], port)
+
+    @unittest.skipIf(SKIP_PROCESS_TESTS, PROCESS_SKIP_REASON)
+    def test_startup_failure_does_not_overwrite_corrupt_state(self):
+        self.state_dir.mkdir(parents=True)
+        state_path = self.state_dir / "sessions.json"
+        corrupt = "{corrupt session catalog 🚫"
+        state_path.write_text(corrupt, encoding="utf-8")
+        failed = self.run_cli(
+            "--json", "start", "--port", "0", "--no-legacy", check=False
+        )
+        self.assertNotEqual(failed.returncode, 0)
+        self.assertIn("service exited during startup", json.loads(failed.stdout)["error"]["message"])
+        self.assertEqual(state_path.read_text(encoding="utf-8"), corrupt)
+        self.assertFalse((self.state_dir / "instance.json").exists())
+
+        doctor = self.run_cli(
+            "--json", "doctor", "--host", "generic", "--port", "0", check=False
+        )
+        self.assertEqual(doctor.returncode, 1)
+        state_check = next(
+            item for item in json.loads(doctor.stdout)["checks"] if item["id"] == "state"
+        )
+        self.assertEqual(state_check["status"], "fail")
+        self.assertEqual(state_path.read_text(encoding="utf-8"), corrupt)
+
+    @unittest.skipIf(SKIP_PROCESS_TESTS, PROCESS_SKIP_REASON)
+    def test_service_crash_leaves_diagnostic_record_and_start_replaces_it(self):
+        started = json.loads(
+            self.run_cli("--json", "start", "--port", "0", "--no-legacy").stdout
+        )
+        os.kill(started["pid"], signal.SIGTERM)
+        self.assertTrue(cli._wait_for_process_exit(started["pid"], 5))
+        record_path = self.state_dir / "instance.json"
+        self.assertEqual(
+            json.loads(record_path.read_text(encoding="utf-8"))["instance_id"],
+            started["instance_id"],
+        )
+
+        doctor = self.run_cli(
+            "--json", "doctor", "--host", "generic", "--port", "0", check=False
+        )
+        record_check = next(
+            item for item in json.loads(doctor.stdout)["checks"]
+            if item["id"] == "instance_record"
+        )
+        self.assertEqual(record_check["status"], "warn")
+
+        restarted = json.loads(
+            self.run_cli("--json", "start", "--port", "0", "--no-legacy").stdout
+        )
+        self.assertNotEqual(restarted["instance_id"], started["instance_id"])
+        self.assertEqual(
+            json.loads(record_path.read_text(encoding="utf-8"))["instance_id"],
+            restarted["instance_id"],
+        )
 
     def test_rejects_ambiguous_message_sources(self):
         result = self.run_cli("msg", "Alice", "text", "--stdin", input_text="other", check=False)
