@@ -20,7 +20,7 @@ class ReleaseTests(unittest.TestCase):
             capture_output=True,
             check=True,
         )
-        self.assertEqual(result.stdout.strip(), "0.1.0-beta.10")
+        self.assertEqual(result.stdout.strip(), "0.1.0-beta.11")
         self.assertEqual(
             {item.name for item in SKILL.iterdir()},
             {"SKILL.md", "agents", "assets", "scripts", "references"},
@@ -103,13 +103,13 @@ class ReleaseTests(unittest.TestCase):
             if line.lstrip().startswith("!["):
                 self.assertNotIn("releases/download/", line)
 
-    def test_readmes_pin_the_beta10_copy_installer(self):
+    def test_readmes_pin_the_beta11_copy_installer(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         chinese = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
         command = (
             "npx --yes skills add "
             "https://github.com/EmptyCrane/agent-live-chat-skill/releases/download/"
-            "v0.1.0-beta.10/live-chat-0.1.0-beta.10.zip "
+            "v0.1.0-beta.11/live-chat-0.1.0-beta.11.zip "
             "--global --agent codex --yes --copy"
         )
         self.assertEqual(readme.count(command), 1)

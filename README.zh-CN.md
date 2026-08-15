@@ -10,10 +10,10 @@
 
 ## 一条命令安装
 
-将已审计的 `v0.1.0-beta.10` 全局安装到 Codex：
+将已审计的 `v0.1.0-beta.11` 全局安装到 Codex：
 
 ```bash
-npx --yes skills add https://github.com/EmptyCrane/agent-live-chat-skill/releases/download/v0.1.0-beta.10/live-chat-0.1.0-beta.10.zip --global --agent codex --yes --copy
+npx --yes skills add https://github.com/EmptyCrane/agent-live-chat-skill/releases/download/v0.1.0-beta.11/live-chat-0.1.0-beta.11.zip --global --agent codex --yes --copy
 ```
 
 该命令使用开源 [`skills`](https://github.com/vercel-labs/skills) CLI。Node.js 与 npm 只在安装时需要；安装后的 Skill 只要求 Python 3.9+，没有第三方运行时依赖。`--copy` 使用文件复制而非符号链接，既可避免 Windows 符号链接权限问题，也会在 CLI 管理的全局目录 `~/.agents/skills/live-chat` 中保留独立副本。下文的仓库安装器则使用 Codex 原生目标 `~/.codex/skills/live-chat`。
@@ -153,7 +153,7 @@ python skill/live-chat/scripts/live_chat.py stop
 ```bash
 python -m unittest discover -s tests -p "test_*.py" -v
 python tools/eval_skill.py --json
-python tools/package_release.py --version 0.1.0-beta.10
+python tools/package_release.py --version 0.1.0-beta.11
 ```
 
 视觉检查使用锁定版本的 Playwright 开发依赖：
@@ -167,7 +167,7 @@ npx playwright install chromium
 
 ## Beta 状态与限制
 
-- 一键安装锁定已审计的 `v0.1.0-beta.10` 预发布包。该版本保留 Beta 9 的可靠性修复，并对存活 PID/health 不匹配采取 fail-closed，同时清理启动超时后由本次调用创建的子进程。
+- 一键安装锁定已审计的 `v0.1.0-beta.11` 预发布包。该版本保留 Beta 10 的启动所有权修复，并恢复移动端成员抽屉的滚轮与触摸滚动，同时保持标题和关闭控件可见。
 - 内置行为评测属于离线策略契约检查；真实宿主与模型的端到端验收仍是独立发布门禁。
 - Claude Code 与 GitHub Copilot 已通过格式检查，但尚未完成对应宿主的真实冒烟测试。
 - GitHub 托管的 macOS runner 目前会跳过受 [runner-images #14409](https://github.com/actions/runner-images/issues/14409) 影响的分离进程 localhost 生命周期；其余 macOS 测试仍会运行，POSIX 生命周期由 Ubuntu 验证。
