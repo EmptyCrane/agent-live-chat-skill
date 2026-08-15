@@ -1,7 +1,9 @@
-"""Crash-safe JSON persistence helpers."""
+"""Crash-safe persistence and cross-process coordination helpers."""
 
+import contextlib
 import json
 import os
+import time
 import uuid
 from pathlib import Path
 
@@ -43,3 +45,58 @@ def atomic_jsonl(path, values):
             handle.write("\n")
 
     _atomic_write(path, write)
+
+
+def _try_lock(handle):
+    if os.name == "nt":
+        import msvcrt
+
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        return
+    import fcntl
+
+    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def _unlock(handle):
+    if os.name == "nt":
+        import msvcrt
+
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        return
+    import fcntl
+
+    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+@contextlib.contextmanager
+def exclusive_file_lock(path, timeout=10.0, interval=0.05):
+    """Hold one cross-process advisory lock without storing runtime metadata."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = path.open("a+b")
+    try:
+        handle.seek(0, os.SEEK_END)
+        if handle.tell() == 0:
+            handle.write(b"\0")
+            handle.flush()
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                _try_lock(handle)
+                break
+            except OSError as exc:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("timed out waiting for startup lock") from exc
+                time.sleep(interval)
+        try:
+            yield
+        finally:
+            try:
+                _unlock(handle)
+            except OSError:
+                pass
+    finally:
+        handle.close()

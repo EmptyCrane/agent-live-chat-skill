@@ -116,6 +116,10 @@ def instance_path(state_dir):
     return Path(state_dir) / "instance.json"
 
 
+def startup_lock_path(state_dir):
+    return Path(state_dir) / "startup.lock"
+
+
 def log_path(state_dir):
     return Path(state_dir) / "server.log"
 

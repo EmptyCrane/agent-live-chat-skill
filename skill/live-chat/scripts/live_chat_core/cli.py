@@ -29,12 +29,13 @@ from .config import (
     legacy_messages_path,
     log_path,
     migrate_legacy_state,
+    startup_lock_path,
     state_path,
     sessions_dir,
     templates_asset_path,
 )
 from .adapters import HOST_ADAPTERS, public_adapter
-from .io_utils import atomic_json
+from .io_utils import atomic_json, exclusive_file_lock
 from .server import LiveChatHTTPServer
 from .sessions import MAX_EVENTS, SessionStore, validate_event_input
 from .templates import load_catalog, template_by_id, template_catalog
@@ -43,6 +44,22 @@ from .validation import validate_seed
 
 class CliError(RuntimeError):
     pass
+
+
+def configure_utf8_stdio():
+    """Use deterministic UTF-8 streams while preserving in-memory test streams."""
+    for stream, errors in (
+        (sys.stdin, "strict"),
+        (sys.stdout, "backslashreplace"),
+        (sys.stderr, "backslashreplace"),
+    ):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors=errors)
+        except (OSError, ValueError):
+            pass
 
 
 def _http_error_message(value, status, reason):
@@ -58,16 +75,22 @@ def _http_error_message(value, status, reason):
     return "%d %s" % (status, reason)
 
 
-def _read_instance(state_dir):
+def _read_instance_record(state_dir):
     path = instance_path(state_dir)
+    if not path.exists():
+        return None, "missing"
     try:
         with path.open("r", encoding="utf-8") as handle:
             value = json.load(handle)
         if not isinstance(value, dict):
-            return None
-        return value
+            return None, "invalid"
+        return value, "valid"
     except (OSError, ValueError):
-        return None
+        return None, "invalid"
+
+
+def _read_instance(state_dir):
+    return _read_instance_record(state_dir)[0]
 
 
 def _request_json(url, method="GET", payload=None, timeout=3):
@@ -137,6 +160,47 @@ def _port_available(host, port):
         sock.close()
 
 
+def _wait_for_process_exit(pid, timeout):
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+        return True
+    timeout = max(0.0, float(timeout))
+    if os.name == "nt":
+        import ctypes
+
+        synchronize = 0x00100000
+        wait_object_0 = 0x00000000
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
+        kernel32.OpenProcess.restype = ctypes.c_void_p
+        kernel32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+        kernel32.WaitForSingleObject.restype = ctypes.c_uint32
+        kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+        kernel32.CloseHandle.restype = ctypes.c_int
+        handle = kernel32.OpenProcess(synchronize, False, pid)
+        if not handle:
+            return True
+        try:
+            milliseconds = min(int(timeout * 1000), 0xFFFFFFFE)
+            return kernel32.WaitForSingleObject(handle, milliseconds) == wait_object_0
+        finally:
+            kernel32.CloseHandle(handle)
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        except PermissionError:
+            return False
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.05)
+
+
+def _process_is_alive(pid):
+    return not _wait_for_process_exit(pid, 0)
+
+
 def _state_dir(args):
     return Path(args.state_dir).expanduser().resolve() if args.state_dir else default_state_dir()
 
@@ -200,19 +264,20 @@ def _serve(args):
         server.serve_forever(poll_interval=0.2)
     finally:
         server.server_close()
+        logger.info("service stopped instance=%s", instance_id)
+        handler.flush()
+        logger.removeHandler(handler)
+        handler.close()
         current = _read_instance(state_dir)
         if current and current.get("instance_id") == instance_id:
             try:
                 instance_path(state_dir).unlink()
             except OSError:
-                logger.warning("could not remove instance file")
-        logger.info("service stopped instance=%s", instance_id)
-        handler.close()
+                pass
     return 0
 
 
-def _start(args):
-    state_dir = _state_dir(args)
+def _start_locked(args, state_dir):
     if not args.state_dir and not os.environ.get("LIVE_CHAT_STATE_DIR"):
         migrate_legacy_state(state_dir)
     state_dir.mkdir(parents=True, exist_ok=True)
@@ -267,6 +332,20 @@ def _start(args):
             return 0
         time.sleep(0.2)
     raise CliError("service startup timed out; inspect %s" % log_path(state_dir))
+
+
+def _start(args):
+    state_dir = _state_dir(args)
+    state_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        with exclusive_file_lock(startup_lock_path(state_dir), timeout=10.0):
+            return _start_locked(args, state_dir)
+    except TimeoutError as exc:
+        instance, health = _instance_health(state_dir)
+        if health:
+            _emit(args, instance, "[live-chat] 服务已在运行: %s" % instance["url"])
+            return 0
+        raise CliError("another live-chat startup is still in progress") from exc
 
 
 def _status(args):
@@ -392,6 +471,45 @@ def _doctor(args):
             _doctor_check(checks, "state", "fail", str(exc), "Back up the state directory before recovery.")
     else:
         _doctor_check(checks, "state", "warn", "no state snapshot exists yet")
+    recorded, record_status = _read_instance_record(state_dir)
+    if record_status == "missing":
+        _doctor_check(checks, "instance_record", "pass", "no instance record is present")
+    elif record_status == "invalid":
+        _doctor_check(
+            checks,
+            "instance_record",
+            "warn",
+            "instance record is malformed",
+            "Do not kill unknown processes; a successful start will replace the stale record.",
+        )
+    else:
+        recorded_health = _health(str(recorded.get("url", "")))
+        matching = (
+            recorded_health is not None
+            and recorded_health.get("instance_id") == recorded.get("instance_id")
+            and recorded_health.get("pid") == recorded.get("pid")
+        )
+        if matching:
+            _doctor_check(
+                checks,
+                "instance_record",
+                "pass",
+                "instance record matches the running service",
+            )
+        else:
+            pid = recorded.get("pid")
+            detail = (
+                "recorded process is alive but health does not match"
+                if _process_is_alive(pid)
+                else "instance record is stale"
+            )
+            _doctor_check(
+                checks,
+                "instance_record",
+                "warn",
+                detail,
+                "Do not kill unknown processes; a successful start will replace the stale record.",
+            )
     instance, health = _instance_health(state_dir)
     if health:
         _doctor_check(
@@ -862,10 +980,20 @@ def _stop(args):
     if not health and not url:
         raise CliError("live-chat service is not running")
     target = url.rstrip("/") if url else instance["url"]
+    recorded_id = instance.get("instance_id") if instance else None
+    recorded_pid = instance.get("pid") if instance else None
     result = _request_json(target + "/api/shutdown", method="POST", payload={})
-    deadline = time.time() + 5
-    while time.time() < deadline and _health(target, timeout=0.3):
+    deadline = time.monotonic() + 8
+    while time.monotonic() < deadline and _health(target, timeout=0.3):
         time.sleep(0.1)
+    if _health(target, timeout=0.3):
+        raise CliError("service shutdown timed out while the endpoint was still healthy")
+    remaining = max(0.0, deadline - time.monotonic())
+    if recorded_pid and not _wait_for_process_exit(recorded_pid, remaining):
+        raise CliError("service shutdown timed out while waiting for process exit")
+    current = _read_instance(state_dir)
+    if recorded_id and current and current.get("instance_id") == recorded_id:
+        raise CliError("service exited but its instance record was not removed")
     _emit(args, result, "[live-chat] 服务已停止")
     return 0
 
@@ -1033,6 +1161,7 @@ def build_parser():
 
 
 def main(argv=None):
+    configure_utf8_stdio()
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
