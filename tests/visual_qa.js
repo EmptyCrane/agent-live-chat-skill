@@ -204,6 +204,143 @@ async function main() {
     }
   }
 
+  async function probeMobileSheetScroll({ width, language, colorScheme, input }) {
+    const context = await browser.newContext({
+      viewport: { width, height: 760 },
+      colorScheme,
+      isMobile: input === 'touch',
+      hasTouch: input === 'touch',
+      locale: language === 'en' ? 'en-US' : 'zh-CN',
+    });
+    try {
+      const page = await context.newPage();
+      const nonGet = [];
+      page.on('request', request => {
+        if (request.method() !== 'GET') nonGet.push(request.method() + ' ' + request.url());
+      });
+      await page.goto(url + '?lang=' + encodeURIComponent(language), { waitUntil: 'domcontentloaded' });
+      await waitForTemplates(page);
+      await page.waitForFunction(() => document.querySelectorAll('#sheet-member-list .member-item').length === 12);
+      await page.locator('#member-trigger').click();
+      await page.waitForFunction(() => {
+        const backdrop = document.getElementById('sheet-backdrop');
+        const scroll = document.getElementById('sheet-scroll');
+        return !backdrop.hidden && scroll.scrollHeight > scroll.clientHeight;
+      });
+
+      const before = await page.evaluate(() => {
+        const scroll = document.getElementById('sheet-scroll');
+        return {
+          scrollTop: scroll.scrollTop,
+          scrollHeight: scroll.scrollHeight,
+          clientHeight: scroll.clientHeight,
+          chatScrollTop: document.getElementById('chat-scroll').scrollTop,
+        };
+      });
+
+      async function touchSwipe() {
+        const box = await page.locator('#sheet-scroll').boundingBox();
+        if (!box || box.height < 80) throw new Error('mobile sheet scroll region is not visible');
+        const session = await context.newCDPSession(page);
+        const x = box.x + box.width / 2;
+        const startY = box.y + Math.min(box.height - 18, 330);
+        const endY = Math.max(box.y + 18, startY - 220);
+        await session.send('Input.dispatchTouchEvent', {
+          type: 'touchStart', touchPoints: [{ x, y: startY }],
+        });
+        for (const fraction of [0.25, 0.5, 0.75, 1]) {
+          await session.send('Input.dispatchTouchEvent', {
+            type: 'touchMove',
+            touchPoints: [{ x, y: startY + (endY - startY) * fraction }],
+          });
+        }
+        await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        await session.detach();
+      }
+
+      async function advance() {
+        if (input === 'touch') {
+          await touchSwipe();
+        } else {
+          await page.locator('#sheet-scroll').hover();
+          await page.mouse.wheel(0, 420);
+        }
+      }
+
+      await advance();
+      await page.waitForFunction(() => document.getElementById('sheet-scroll').scrollTop > 0);
+      for (let attempt = 0; attempt < 12; attempt += 1) {
+        const lastVisible = await page.evaluate(() => {
+          const scroll = document.getElementById('sheet-scroll');
+          const last = document.querySelector('#sheet-member-list .member-item:last-child');
+          return last.getBoundingClientRect().bottom <= scroll.getBoundingClientRect().bottom + 1;
+        });
+        if (lastVisible) break;
+        await advance();
+      }
+
+      const after = await page.evaluate(() => {
+        const scroll = document.getElementById('sheet-scroll');
+        const sheet = document.getElementById('member-sheet').getBoundingClientRect();
+        const header = document.querySelector('.sheet-header').getBoundingClientRect();
+        const close = document.getElementById('sheet-close').getBoundingClientRect();
+        const last = document.querySelector('#sheet-member-list .member-item:last-child').getBoundingClientRect();
+        return {
+          scrollTop: scroll.scrollTop,
+          lastVisible: last.bottom <= scroll.getBoundingClientRect().bottom + 1,
+          headerVisible: header.top >= sheet.top - 1 && header.bottom <= sheet.bottom + 1,
+          closeVisible: close.top >= sheet.top - 1 && close.bottom <= sheet.bottom + 1,
+          chatScrollTop: document.getElementById('chat-scroll').scrollTop,
+          horizontalOverflow: document.body.scrollWidth > window.innerWidth,
+          safeAreaPadding: parseFloat(getComputedStyle(document.getElementById('sheet-member-list')).paddingBottom),
+          touchAction: getComputedStyle(scroll).touchAction,
+        };
+      });
+      if (after.scrollTop <= before.scrollTop || !after.lastVisible || !after.headerVisible || !after.closeVisible) {
+        throw new Error('mobile member sheet did not scroll correctly: ' + JSON.stringify({ before, after }));
+      }
+      if (after.chatScrollTop !== before.chatScrollTop || after.horizontalOverflow || after.safeAreaPadding < 12) {
+        throw new Error('mobile member sheet containment failed: ' + JSON.stringify({ before, after }));
+      }
+      if (input === 'touch' && after.touchAction !== 'pan-y') {
+        throw new Error('mobile member sheet does not expose vertical touch panning');
+      }
+      if (nonGet.length) throw new Error('mobile member sheet issued a write request: ' + JSON.stringify(nonGet));
+      return { width, language, colorScheme, input, before, after };
+    } finally {
+      await context.close();
+    }
+  }
+
+  async function probeMobileRoster(expectedMembers, language) {
+    const context = await browser.newContext({ viewport: { width: 360, height: 640 } });
+    try {
+      const page = await context.newPage();
+      const nonGet = [];
+      page.on('request', request => {
+        if (request.method() !== 'GET') nonGet.push(request.method() + ' ' + request.url());
+      });
+      await page.goto(url + '?lang=' + encodeURIComponent(language), { waitUntil: 'domcontentloaded' });
+      await waitForTemplates(page);
+      await page.waitForFunction(
+        expected => Number(document.getElementById('member-total').textContent) === expected,
+        expectedMembers,
+      );
+      await page.locator('#member-trigger').click();
+      const value = await page.evaluate(() => ({
+        members: document.querySelectorAll('#sheet-member-list .member-item').length,
+        sheetOpen: !document.getElementById('sheet-backdrop').hidden,
+        horizontalOverflow: document.body.scrollWidth > window.innerWidth,
+      }));
+      if (value.members !== expectedMembers || !value.sheetOpen || value.horizontalOverflow || nonGet.length) {
+        throw new Error('mobile roster state mismatch: ' + JSON.stringify({ value, nonGet }));
+      }
+      return { expectedMembers, language, ...value };
+    } finally {
+      await context.close();
+    }
+  }
+
   try {
     const roster = await seedFixture('zh-CN');
     const initialCatalog = await fetch(url + '/api/sessions').then(response => response.json());
@@ -263,6 +400,43 @@ async function main() {
       throw new Error('session comparison is unavailable or not read-only');
     }
     await historyContext.close();
+
+    const mobileHistoryContext = await browser.newContext({ viewport: { width: 390, height: 760 }, hasTouch: true });
+    const mobileHistoryPage = await mobileHistoryContext.newPage();
+    const mobileHistoryWrites = [];
+    mobileHistoryPage.on('request', request => {
+      if (request.method() !== 'GET') mobileHistoryWrites.push(request.method() + ' ' + request.url());
+    });
+    await mobileHistoryPage.goto(url + '?lang=en', { waitUntil: 'domcontentloaded' });
+    await waitForTemplates(mobileHistoryPage);
+    await mobileHistoryPage.locator('#member-trigger').click();
+    await mobileHistoryPage.waitForFunction(() => document.querySelectorAll('#sheet-session-select option').length >= 2);
+    await mobileHistoryPage.locator('#sheet-session-select').selectOption(archivedSessionId);
+    await mobileHistoryPage.waitForFunction(
+      expected => new URLSearchParams(window.location.search).get('session') === expected,
+      archivedSessionId,
+    );
+    const mobileHistoryCheck = await mobileHistoryPage.evaluate(() => ({
+      selected: document.getElementById('sheet-session-select').value,
+      archivedLabel: document.getElementById('sheet-session-select').selectedOptions[0].textContent,
+      scrollContained: document.getElementById('sheet-scroll').scrollHeight > document.getElementById('sheet-scroll').clientHeight,
+      horizontalOverflow: document.body.scrollWidth > window.innerWidth,
+    }));
+    await mobileHistoryContext.close();
+    if (mobileHistoryCheck.selected !== archivedSessionId
+        || !mobileHistoryCheck.archivedLabel.includes('archived')
+        || !mobileHistoryCheck.scrollContained
+        || mobileHistoryCheck.horizontalOverflow
+        || mobileHistoryWrites.length) {
+      throw new Error('mobile history sheet mismatch: ' + JSON.stringify({ mobileHistoryCheck, mobileHistoryWrites }));
+    }
+
+    const mobileSheetChecks = [
+      await probeMobileSheetScroll({ width: 360, language: 'en', colorScheme: 'dark', input: 'wheel' }),
+      await probeMobileSheetScroll({ width: 360, language: 'zh-CN', colorScheme: 'light', input: 'touch' }),
+      await probeMobileSheetScroll({ width: 390, language: 'zh-CN', colorScheme: 'light', input: 'wheel' }),
+      await probeMobileSheetScroll({ width: 390, language: 'en', colorScheme: 'dark', input: 'touch' }),
+    ];
 
     for (const item of cases) {
       const context = await browser.newContext({
@@ -326,10 +500,12 @@ async function main() {
     await post('/api/reset', { scene: { title: '状态验收', subtitle: '0 / 1 / 6 / 12 成员' } });
     await post('/api/participants', { participants: [] });
     stateChecks.push({ case: '0-members-0-typing', ...await probeState(0, 0) });
+    stateChecks.push({ case: 'mobile-0-members', ...await probeMobileRoster(0, 'zh-CN') });
 
     await post('/api/msg', { sender: '成员 1', text: '单成员状态' });
     await post('/api/typing', { sender: '成员 1', active: true });
     stateChecks.push({ case: '1-member-1-typing', ...await probeState(1, 1) });
+    stateChecks.push({ case: 'mobile-1-member', ...await probeMobileRoster(1, 'en') });
 
     await post('/api/reset', { scene: { title: '状态验收', subtitle: '6 名成员' } });
     for (let index = 1; index <= 6; index += 1) {
@@ -476,7 +652,10 @@ async function main() {
       await captureDocumentation('en', 'live-chat-en.png'),
       await captureDocumentation('zh-CN', 'live-chat-zh-CN.png'),
     ];
-    results.push({ historyCheck, stateChecks, sessionChecks, rememberedTheme, storageFallback, documentation });
+    results.push({
+      historyCheck, mobileHistoryCheck, mobileSheetChecks, stateChecks,
+      sessionChecks, rememberedTheme, storageFallback, documentation,
+    });
   } finally {
     await browser.close();
   }
