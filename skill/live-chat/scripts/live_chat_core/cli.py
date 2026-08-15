@@ -201,6 +201,25 @@ def _process_is_alive(pid):
     return not _wait_for_process_exit(pid, 0)
 
 
+def _stop_started_process(process, timeout=3):
+    """Stop only a child process created by the current start attempt."""
+    if process.poll() is not None:
+        return True
+    try:
+        process.terminate()
+        process.wait(timeout=timeout)
+        return True
+    except subprocess.TimeoutExpired:
+        process.kill()
+        try:
+            process.wait(timeout=timeout)
+            return True
+        except subprocess.TimeoutExpired:
+            return False
+    except OSError:
+        return process.poll() is not None
+
+
 def _state_dir(args):
     return Path(args.state_dir).expanduser().resolve() if args.state_dir else default_state_dir()
 
@@ -285,6 +304,11 @@ def _start_locked(args, state_dir):
     if health:
         _emit(args, instance, "[live-chat] 服务已在运行: %s" % instance["url"])
         return 0
+    if instance and _process_is_alive(instance.get("pid")):
+        raise CliError(
+            "instance record points to a live process but health does not match; "
+            "run doctor and verify ownership before starting another service"
+        )
 
     requested_port = args.port
     if requested_port < 0 or requested_port > 65535:
@@ -322,15 +346,21 @@ def _start_locked(args, state_dir):
             creationflags=creationflags,
             start_new_session=os.name != "nt",
         )
-    deadline = time.time() + 8
-    while time.time() < deadline:
-        if process.poll() is not None:
-            raise CliError("service exited during startup; inspect %s" % log_path(state_dir))
-        current, current_health = _instance_health(state_dir)
-        if current_health and current.get("instance_id") != previous_id:
-            _emit(args, current, "[live-chat] 服务已启动: %s (pid=%s)" % (current["url"], current["pid"]))
-            return 0
-        time.sleep(0.2)
+    try:
+        deadline = time.time() + 8
+        while time.time() < deadline:
+            if process.poll() is not None:
+                raise CliError("service exited during startup; inspect %s" % log_path(state_dir))
+            current, current_health = _instance_health(state_dir)
+            if current_health and current.get("instance_id") != previous_id:
+                _emit(args, current, "[live-chat] 服务已启动: %s (pid=%s)" % (current["url"], current["pid"]))
+                return 0
+            time.sleep(0.2)
+    except Exception:
+        _stop_started_process(process)
+        raise
+    if not _stop_started_process(process):
+        raise CliError("service startup timed out and the spawned process did not exit")
     raise CliError("service startup timed out; inspect %s" % log_path(state_dir))
 
 

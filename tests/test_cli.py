@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -226,13 +227,13 @@ class CliTests(unittest.TestCase):
         started = self.run_cli("--json", "start", "--port", "0", "--no-legacy")
         instance = json.loads(started.stdout)
         self.assertTrue(instance["url"].startswith("http://127.0.0.1:"))
-        self.assertEqual(instance["app_version"], "0.1.0-beta.9")
+        self.assertEqual(instance["app_version"], "0.1.0-beta.10")
         self.run_cli("msg", "Alice", "--stdin", input_text="Line one\nLine two")
         self.run_cli("participants", "set", "Alice", "Waiting", "Alice")
         self.run_cli("session", "set", "--stdin", input_text=self.session_json())
         status = self.run_cli("--json", "status")
         value = json.loads(status.stdout)
-        self.assertEqual(value["app_version"], "0.1.0-beta.9")
+        self.assertEqual(value["app_version"], "0.1.0-beta.10")
         self.assertTrue(value["active_session_id"])
         self.assertEqual(len(value["sessions"]), 1)
         self.assertEqual(value["messages"], 1)
@@ -510,6 +511,64 @@ class CliTests(unittest.TestCase):
             json.loads(record_path.read_text(encoding="utf-8"))["instance_id"],
             restarted["instance_id"],
         )
+
+    @unittest.skipIf(SKIP_PROCESS_TESTS, PROCESS_SKIP_REASON)
+    def test_live_recorded_pid_with_mismatched_health_fails_closed(self):
+        self.state_dir.mkdir(parents=True)
+        owned = subprocess.Popen(
+            [sys.executable, "-B", "-c", "import time; time.sleep(30)"],
+            env=self.environment,
+        )
+        record = {
+            "instance_id": "mismatched-live-process",
+            "pid": owned.pid,
+            "url": "http://127.0.0.1:1",
+        }
+        try:
+            (self.state_dir / "instance.json").write_text(
+                json.dumps(record), encoding="utf-8"
+            )
+            failed = self.run_cli(
+                "--json", "start", "--port", "0", "--no-legacy", check=False
+            )
+            self.assertNotEqual(failed.returncode, 0)
+            self.assertIn("live process but health does not match", failed.stdout)
+            self.assertIsNone(owned.poll())
+            self.assertEqual(
+                json.loads((self.state_dir / "instance.json").read_text(encoding="utf-8")),
+                record,
+            )
+        finally:
+            owned.terminate()
+            owned.wait(timeout=5)
+
+    @unittest.skipIf(SKIP_PROCESS_TESTS, PROCESS_SKIP_REASON)
+    def test_startup_timeout_terminates_the_owned_real_child(self):
+        original_popen = subprocess.Popen
+        children = []
+
+        def sleeping_child(*_args, **_kwargs):
+            child = original_popen(
+                [sys.executable, "-B", "-c", "import time; time.sleep(30)"],
+                env=self.environment,
+            )
+            children.append(child)
+            return child
+
+        args = SimpleNamespace(
+            state_dir=str(self.state_dir),
+            no_legacy=True,
+            port=0,
+            json_output=True,
+        )
+        with patch.object(cli.subprocess, "Popen", side_effect=sleeping_child), patch.object(
+            cli, "_instance_health", return_value=(None, None)
+        ), patch.object(cli.time, "time", side_effect=(0, 9)):
+            with self.assertRaises(cli.CliError) as caught:
+                cli._start_locked(args, self.state_dir)
+        self.assertIn("startup timed out", str(caught.exception))
+        self.assertEqual(len(children), 1)
+        self.assertIsNotNone(children[0].poll())
 
     def test_rejects_ambiguous_message_sources(self):
         result = self.run_cli("msg", "Alice", "text", "--stdin", input_text="other", check=False)
