@@ -30,8 +30,10 @@ from .config import (
     log_path,
     migrate_legacy_state,
     state_path,
+    sessions_dir,
 )
 from .adapters import HOST_ADAPTERS, public_adapter
+from .io_utils import atomic_json
 from .server import LiveChatHTTPServer
 from .sessions import MAX_EVENTS, SessionStore, validate_event_input
 from .validation import validate_seed
@@ -52,25 +54,6 @@ def _http_error_message(value, status, reason):
         elif isinstance(error, str) and error:
             return error
     return "%d %s" % (status, reason)
-
-
-def _atomic_json(path, value):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(".%s.%s.tmp" % (path.name, uuid.uuid4().hex))
-    try:
-        with temporary.open("x", encoding="utf-8", newline="\n") as handle:
-            json.dump(value, handle, ensure_ascii=False, separators=(",", ":"))
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(str(temporary), str(path))
-    finally:
-        try:
-            if temporary.exists():
-                temporary.unlink()
-        except OSError:
-            pass
 
 
 def _read_instance(state_dir):
@@ -209,7 +192,7 @@ def _serve(args):
         "url": "http://%s:%d" % (DEFAULT_HOST, actual_port),
         "started_at": datetime.now(timezone.utc).isoformat(),
     }
-    _atomic_json(instance_path(state_dir), instance)
+    atomic_json(instance_path(state_dir), instance)
     logger.info("service started instance=%s url=%s", instance_id, instance["url"])
     try:
         server.serve_forever(poll_interval=0.2)
@@ -310,6 +293,9 @@ def _status(args):
         catalog = _request_json(instance["url"] + "/api/sessions?include_archived=1")
         value["active_session_id"] = catalog["active_session_id"]
         value["sessions"] = catalog["sessions"]
+        value["state_file"] = str(
+            sessions_dir(state_dir) / catalog["active_session_id"] / "state.json"
+        )
     text = (
         "[live-chat] 运行中: {url} pid={pid} messages={messages} "
         "participants={participants} typing={typing} session={session[status]} "
@@ -632,7 +618,7 @@ def _demo(args):
     is_zh = args.lang == "zh-CN"
     created = _request_json(url + "/api/sessions", method="POST", payload={
         "title": "多智能体方案评审" if is_zh else "Multi-agent design review",
-        "subtitle": "Beta 5 Demo",
+        "subtitle": "Live Chat Demo",
         "source": {"host": args.host},
     })
     session_id = created["session"]["session_id"]
@@ -647,7 +633,7 @@ def _demo(args):
         "type": "conversation.seeded",
         "source": {"host": args.host},
         "payload": {
-            "scene": {"title": created["session"]["title"], "subtitle": "Beta 5 Demo"},
+            "scene": {"title": created["session"]["title"], "subtitle": "Live Chat Demo"},
             "participants": names,
             "messages": messages,
         },

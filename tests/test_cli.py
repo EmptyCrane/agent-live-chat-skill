@@ -200,6 +200,9 @@ class CliTests(unittest.TestCase):
         self.assertEqual(value["session"]["status"], "running")
         self.assertEqual(value["session"]["round"]["current"], 1)
         self.assertEqual(value["typing"], [])
+        expected_state = self.state_dir / "sessions" / value["active_session_id"] / "state.json"
+        self.assertEqual(Path(value["state_file"]).resolve(), expected_state.resolve())
+        self.assertTrue(expected_state.is_file())
         stopped = self.run_cli("stop")
         self.assertIn("服务已停止", stopped.stdout)
         self.run_cli("start", "--port", "0", "--no-legacy")

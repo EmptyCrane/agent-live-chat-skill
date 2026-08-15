@@ -71,7 +71,11 @@ class LiveChatHandler(BaseHTTPRequestHandler):
         return require_mapping(body)
 
     def _health(self):
-        snapshot = self.server.store.snapshot(0)
+        snapshot = (
+            self.server.store.summary()
+            if hasattr(self.server.store, "summary")
+            else self.server.store.snapshot(0)
+        )
         value = {
             "ok": True,
             "service": SERVICE_NAME,

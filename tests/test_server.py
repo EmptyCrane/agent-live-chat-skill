@@ -5,6 +5,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -71,6 +72,12 @@ class ServerTests(unittest.TestCase):
         _, state = self.request("/api/state?since=1")
         self.assertEqual(state["total"], 2)
         self.assertEqual([message["text"] for message in state["messages"]], ["Two"])
+
+    def test_health_does_not_copy_full_conversation_snapshot(self):
+        with patch.object(self.server.store, "snapshot", side_effect=AssertionError):
+            _, health = self.request("/api/health")
+        self.assertEqual(health["epoch"], 0)
+        self.assertEqual(health["revision"], 0)
 
     def test_typing_clear_and_reset(self):
         self.request("/api/typing", "POST", {"sender": "Alice", "active": True})

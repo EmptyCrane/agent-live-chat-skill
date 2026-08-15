@@ -23,11 +23,7 @@ If Python or shell execution is unavailable, explain that the local service cann
 
 Extract background, objective, deliverable, one to five completion criteria, and constraints from the request. Treat requested models, reasoning effort, tone, style, and persona rules as constraints. Start immediately when objective and deliverable are sufficient. Otherwise ask once for only the missing critical information.
 
-Use two roles for a simple comparison or short adversarial exchange. Use three complementary roles for review, diagnosis, open decisions, or creative convergence. Prefer user-specified roles. Use responsibility names such as Architect, Critic, and Operator; do not use model names as participant personas unless the user explicitly requests that name.
-
-Keep each role's responsibility, focus, tone, response style, behavioral instructions, and model request separate. Include tone, style, and instructions in that subagent's task prompt; do not treat a model name as a personality.
-
-Before dispatch, inspect the current subagent tool or host surface for model and reasoning overrides. Resolve each role's `requested` model and reasoning effort against those actual capabilities. Do not infer host availability from a vendor model catalog. If an exact requested model is unavailable and fallback is `ask`, set `waiting_user` and ask before dispatch. Apply `inherit` or another available model only when the session policy permits it, and record the actual model plus fallback reason. If the host does not reveal the effective model, record `host-managed` rather than guessing.
+Before dispatching real subagents, read `references/orchestration.md` for role selection, prompt fields, model resolution, round transitions, completion, and recovery. Keep responsibilities and behavior separate from model requests. Do not infer host availability from a vendor catalog: probe the active host surface, and never guess an effective model.
 
 Tell the user which roles will participate, that the default is at most three rounds, and that they can pause, continue, or stop at any time.
 
@@ -65,7 +61,7 @@ An active session must contain objective, deliverable, one to five criteria, a m
 
 ## Run goal-driven rounds
 
-Use no more than three rounds by default:
+Follow the three-phase soft guardrail in `references/orchestration.md`, using no more than three rounds by default:
 
 1. `independent`: collect independent views without cross-anchoring.
 2. `challenge`: challenge disagreements, evidence, and risk.
@@ -81,20 +77,11 @@ For every real reply, in actual completion order:
 2. Push the unmodified reply through stdin.
 3. Add the participant to `completed_participants` only after a successful push.
 
-After each round, evaluate the deliverable, every completion criterion, material disagreements, and choices only the user can make:
-
-- Set `completed` and record the satisfied criteria when the goal is met.
-- Continue when progress remains possible and the round limit is not reached.
-- Set `waiting_user` at the limit when the goal is not met; offer another round, role changes, objective changes, or a partial result.
-- Set `partial_failure` when a necessary role fails and only a partial result is possible.
-
-Do not report completion merely because the round limit was reached.
+After each round, evaluate the deliverable, every completion criterion, material disagreements, and choices only the user can make. Complete only when the goal is met; otherwise continue, set `waiting_user` at the limit, or set `partial_failure` when a necessary role fails. Do not report completion merely because the round limit was reached.
 
 ## Pause, resume, stop, and failure
 
-On pause, stop new dispatches, preserve received replies, clear all typing, record completed participants, and set `paused`. If interruption exists, interrupt running subagents. If it does not, state that in-flight work cannot be force-cancelled and ignore late results until the user continues.
-
-On continue, restore the persisted session and dispatch only unfinished roles in the current round. Recreate unavailable agents with the same responsibility, behavior settings, requested model, resolved reasoning effort, and a concise conversation summary. Re-check host availability; never silently substitute a now-unavailable model.
+On pause, stop new dispatches, preserve received replies, clear typing, record completed participants, and set `paused`. Interrupt running subagents only when the host supports it; otherwise state that in-flight work cannot be force-cancelled and ignore late results until continuation. On continue, restore the persisted session and dispatch only unfinished roles, following the recovery rules in `references/orchestration.md` without silent model substitution.
 
 On stop, clear typing and set `stopped` with a reason. Keep the page, messages, objective, and roster available.
 

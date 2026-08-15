@@ -4,7 +4,7 @@
 
 ## 状态模型
 
-Beta 5保持原HTTP `protocol_version=1`和单会话快照Schema 1，新增独立的`event_protocol_version=1`。旧客户端继续读写活动会话；新客户端必须从health的`features`判断多会话能力，不得仅根据应用版本猜测。
+当前版本保持原 HTTP `protocol_version=1` 和单会话快照 Schema 1，并提供独立的 `event_protocol_version=1`。旧客户端继续读写活动会话；新客户端必须从 health 的 `features` 判断多会话能力，不得仅根据应用版本猜测。
 
 - `instance_id`：单次服务进程标识。变化时客户端完整重拉。
 - `app_version`：应用发行版本；增量加入health、instance和CLI status输出。
@@ -50,26 +50,26 @@ Beta 5保持原HTTP `protocol_version=1`和单会话快照Schema 1，新增独�
 
 ## CLI
 
-统一入口为 `scripts/live_chat.py`。全局参数必须放在子命令前：
+始终使用当前 `SKILL.md` 指定的命令入口。官方宿主中立包默认为 `scripts/live_chat.py`；宿主专用安装可能要求使用隔离 wrapper。以下示例以 `<entrypoint>` 表示该入口，全局参数必须放在子命令前：
 
 ```text
-python live_chat.py --state-dir <dir> --json status
-python live_chat.py --version
-python live_chat.py --url http://127.0.0.1:9000 msg 成员 --stdin
-python live_chat.py participants set "成员甲" "成员乙"
-python live_chat.py participants clear
-python live_chat.py session set --stdin
-python live_chat.py session set --file session.json
-python live_chat.py session clear
-python live_chat.py doctor --host codex
-python live_chat.py demo --lang zh-CN --port 0
-python live_chat.py sessions list --archived
-python live_chat.py sessions create --title "架构评审"
-python live_chat.py sessions select <session-id>
-python live_chat.py export <session-id> --format events --file history.json
-python live_chat.py replay --file history.json --speed 0
-python live_chat.py events emit --stdin
-python live_chat.py adapter show codex
+python <entrypoint> --state-dir <dir> --json status
+python <entrypoint> --version
+python <entrypoint> --url http://127.0.0.1:9000 msg 成员 --stdin
+python <entrypoint> participants set "成员甲" "成员乙"
+python <entrypoint> participants clear
+python <entrypoint> session set --stdin
+python <entrypoint> session set --file session.json
+python <entrypoint> session clear
+python <entrypoint> doctor --host codex
+python <entrypoint> demo --lang zh-CN --port 0
+python <entrypoint> sessions list --archived
+python <entrypoint> sessions create --title "架构评审"
+python <entrypoint> sessions select <session-id>
+python <entrypoint> export <session-id> --format events --file history.json
+python <entrypoint> replay --file history.json --speed 0
+python <entrypoint> events emit --stdin
+python <entrypoint> adapter show codex
 ```
 
 消息正文来源三选一：位置参数、`--stdin`、`--file`。长文本或多行文本优先使用 stdin。

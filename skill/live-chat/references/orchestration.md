@@ -74,4 +74,4 @@ Use responsibility-based example names such as Architect, Critic, and Operator. 
 
 ## 浏览器能力降级
 
-运行 `python <skill>/scripts/live_chat.py --json start` 并解析URL。宿主提供明确的内置浏览器能力时，本场首次启动只打开一次并复用页面。不传宽高、缩放或视口参数，不写宿主全局布局偏好。能力不存在或失败时返回URL并继续；不要调用系统浏览器。具体宿主调用方式见 `hosts.md`。
+运行当前 `SKILL.md` 指定的 start 命令并解析 URL；宿主专用安装可能要求使用隔离 wrapper，不要用参考文档中的示例覆盖该入口。宿主提供明确的内置浏览器能力时，本场首次启动只打开一次并复用页面。不传宽高、缩放或视口参数，不写宿主全局布局偏好。能力不存在或失败时返回 URL 并继续；不要调用系统浏览器。具体宿主调用方式见 `hosts.md`。

@@ -2,13 +2,12 @@
 
 import json
 import logging
-import os
 import threading
-import uuid
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 
+from .io_utils import atomic_json
 from .models import DEFAULT_SESSION, initial_state
 from .validation import (
     ValidationError,
@@ -58,21 +57,7 @@ class StateStore:
         return state
 
     def _persist(self, state):
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = self.path.with_name(".%s.%s.tmp" % (self.path.name, uuid.uuid4().hex))
-        try:
-            with temporary.open("x", encoding="utf-8", newline="\n") as handle:
-                json.dump(state, handle, ensure_ascii=False, separators=(",", ":"))
-                handle.write("\n")
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(str(temporary), str(self.path))
-        finally:
-            try:
-                if temporary.exists():
-                    temporary.unlink()
-            except OSError:
-                pass
+        atomic_json(self.path, state)
 
     def _replay_legacy(self, path):
         state = initial_state()
@@ -141,33 +126,8 @@ class StateStore:
         ]
         return validate_persisted_state(state), accepted, skipped
 
-    def _commit(self, mutate):
-        with self._lock:
-            candidate = deepcopy(self._state)
-            result = mutate(candidate)
-            candidate["revision"] += 1
-            candidate = validate_persisted_state(candidate)
-            self._persist(candidate)
-            self._state = candidate
-            return deepcopy(result), candidate["epoch"], candidate["revision"]
-
-    def snapshot(self, since=0):
-        with self._lock:
-            total = len(self._state["messages"])
-            return {
-                "epoch": self._state["epoch"],
-                "revision": self._state["revision"],
-                "event_seq": self._state.get("event_seq", 0),
-                "total": total,
-                "scene": deepcopy(self._state["scene"]),
-                "session": deepcopy(self._state["session"]),
-                "participants": deepcopy(self._state["participants"]),
-                "typing": deepcopy(self._state["typing"]),
-                "messages": deepcopy(self._state["messages"][since:]),
-            }
-
-    def add_message(self, payload):
-        def mutate(state):
+    def _apply_operation(self, state, operation, payload):
+        if operation == "message":
             message = validate_message(payload, len(state["messages"]) + 1)
             if not message["ts"]:
                 message["ts"] = datetime.now().strftime("%H:%M:%S")
@@ -175,14 +135,8 @@ class StateStore:
             if not message["sys"]:
                 _append_participant(state, message["sender"])
             return message
-
-        message, epoch, revision = self._commit(mutate)
-        return {"ok": True, "id": message["id"], "epoch": epoch, "revision": revision}
-
-    def set_typing(self, payload):
-        normalized = validate_typing(payload)
-
-        def mutate(state):
+        if operation == "typing":
+            normalized = validate_typing(payload)
             if normalized["clear"]:
                 state["typing"] = {}
             elif normalized["active"]:
@@ -191,52 +145,24 @@ class StateStore:
             else:
                 state["typing"].pop(normalized["sender"], None)
             return deepcopy(state["typing"])
-
-        typing, epoch, revision = self._commit(mutate)
-        return {"ok": True, "typing": typing, "epoch": epoch, "revision": revision}
-
-    def set_participants(self, participants):
-        normalized = validate_participants(participants)
-
-        def mutate(state):
+        if operation == "participants":
+            normalized = validate_participants(payload)
             state["participants"] = normalized
             return normalized
-
-        result, epoch, revision = self._commit(mutate)
-        return {
-            "ok": True,
-            "participants": result,
-            "epoch": epoch,
-            "revision": revision,
-        }
-
-    def set_session(self, session):
-        def mutate(state):
+        if operation == "session":
             normalized = (
                 deepcopy(DEFAULT_SESSION)
-                if session is None
-                else validate_session(session, state["participants"])
+                if payload is None
+                else validate_session(payload, state["participants"])
             )
             state["session"] = normalized
             return normalized
-
-        result, epoch, revision = self._commit(mutate)
-        return {"ok": True, "session": result, "epoch": epoch, "revision": revision}
-
-    def set_scene(self, scene):
-        normalized = validate_scene(scene)
-
-        def mutate(state):
+        if operation == "scene":
+            normalized = validate_scene(payload)
             state["scene"] = normalized
             return normalized
-
-        result, epoch, revision = self._commit(mutate)
-        return {"ok": True, "scene": result, "epoch": epoch, "revision": revision}
-
-    def reset(self, scene=None):
-        normalized = validate_scene(scene) if scene is not None else None
-
-        def mutate(state):
+        if operation == "reset":
+            normalized = validate_scene(payload) if payload is not None else None
             state["messages"] = []
             state["typing"] = {}
             state["session"] = deepcopy(DEFAULT_SESSION)
@@ -244,14 +170,8 @@ class StateStore:
             if normalized is not None:
                 state["scene"] = normalized
             return None
-
-        _, epoch, revision = self._commit(mutate)
-        return {"ok": True, "count": 0, "epoch": epoch, "revision": revision}
-
-    def seed(self, payload):
-        normalized = validate_seed(payload)
-
-        def mutate(state):
+        if operation == "seed":
+            normalized = validate_seed(payload)
             state["messages"] = normalized["messages"]
             state["typing"] = {}
             if normalized["participants"] is not None:
@@ -271,6 +191,102 @@ class StateStore:
             if normalized["scene"] is not None:
                 state["scene"] = normalized["scene"]
             return len(state["messages"])
+        raise ValueError("unknown state operation: %s" % operation)
 
-        count, epoch, revision = self._commit(mutate)
-        return {"ok": True, "count": count, "epoch": epoch, "revision": revision}
+    @staticmethod
+    def _operation_result(operation, result, epoch, revision):
+        value = {"ok": True, "epoch": epoch, "revision": revision}
+        if operation == "message":
+            value["id"] = result["id"]
+        elif operation == "typing":
+            value["typing"] = result
+        elif operation == "participants":
+            value["participants"] = result
+        elif operation == "session":
+            value["session"] = result
+        elif operation == "scene":
+            value["scene"] = result
+        elif operation in {"reset", "seed"}:
+            value["count"] = 0 if operation == "reset" else result
+        return value
+
+    def apply_operations(self, operations):
+        """Apply validated state operations atomically with one snapshot write."""
+        if not operations:
+            return []
+        with self._lock:
+            candidate = deepcopy(self._state)
+            results = []
+            last_operation_validated = False
+            for operation, payload in operations:
+                result = self._apply_operation(candidate, operation, payload)
+                candidate["revision"] += 1
+                # Participant/session replacement and whole-state operations can
+                # violate cross-field invariants immediately. Message, typing,
+                # and scene operations are already locally normalized, so defer
+                # their full-state pass until the end of the transaction.
+                last_operation_validated = operation in {
+                    "participants",
+                    "session",
+                    "reset",
+                    "seed",
+                }
+                if last_operation_validated:
+                    candidate = validate_persisted_state(candidate)
+                results.append(
+                    self._operation_result(
+                        operation,
+                        deepcopy(result),
+                        candidate["epoch"],
+                        candidate["revision"],
+                    )
+                )
+            if not last_operation_validated:
+                candidate = validate_persisted_state(candidate)
+            self._persist(candidate)
+            self._state = candidate
+            return deepcopy(results)
+
+    def snapshot(self, since=0):
+        with self._lock:
+            total = len(self._state["messages"])
+            return {
+                "epoch": self._state["epoch"],
+                "revision": self._state["revision"],
+                "event_seq": self._state.get("event_seq", 0),
+                "total": total,
+                "scene": deepcopy(self._state["scene"]),
+                "session": deepcopy(self._state["session"]),
+                "participants": deepcopy(self._state["participants"]),
+                "typing": deepcopy(self._state["typing"]),
+                "messages": deepcopy(self._state["messages"][since:]),
+            }
+
+    def summary(self):
+        """Return health metadata without copying conversation content."""
+        with self._lock:
+            return {
+                "epoch": self._state["epoch"],
+                "revision": self._state["revision"],
+            }
+
+    def add_message(self, payload):
+        return self.apply_operations([("message", payload)])[0]
+
+    def set_typing(self, payload):
+        return self.apply_operations([("typing", payload)])[0]
+
+    def set_participants(self, participants):
+        return self.apply_operations([("participants", participants)])[0]
+
+    def set_session(self, session):
+        return self.apply_operations([("session", session)])[0]
+
+    def set_scene(self, scene):
+        return self.apply_operations([("scene", scene)])[0]
+
+    def reset(self, scene=None):
+        return self.apply_operations([("reset", scene)])[0]
+
+    def seed(self, payload):
+        return self.apply_operations([("seed", payload)])[0]

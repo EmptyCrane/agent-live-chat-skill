@@ -2,17 +2,19 @@
 
 宿主能力差异和安装目录见 `hosts.md`。没有子智能体时只能使用回放或手动推送模式，不得把单智能体模拟描述成真实多智能体直播。
 
+以下命令中的 `<entrypoint>` 必须替换为当前 `SKILL.md` 指定的入口；宿主专用安装可能要求使用隔离 wrapper。
+
 ## 查看状态
 
 运行：
 
 ```text
-python <skill>/scripts/live_chat.py status
+python <entrypoint> status
 ```
 
 它会显示实际 URL、PID、消息数、参与者名册、typing成员、session状态、轮次、状态文件和日志位置。
 
-先运行 `python <skill>/scripts/live_chat.py doctor`。退出码 `0` 表示全部通过，`2` 表示仅有警告，`1` 表示至少一项失败。`FAIL`必须解决；`WARN`表示服务尚未启动、尚未产生状态或发现可能的重复安装，不一定阻止使用。
+先运行 `python <entrypoint> doctor`。退出码 `0` 表示全部通过，`2` 表示仅有警告，`1` 表示至少一项失败。`FAIL`必须解决；`WARN`表示服务尚未启动、尚未产生状态或发现可能的重复安装，不一定阻止使用。
 
 ## 找不到历史会话
 
@@ -20,7 +22,7 @@ python <skill>/scripts/live_chat.py status
 
 ## 连接到旧服务
 
-Beta 5的旧命令可继续控制协议版本1服务。若多会话、事件、导出或回放命令返回`unsupported_feature`，停止旧服务并从同一状态目录启动Beta 5；旧根`state.json`会被非破坏地导入。
+旧命令可继续控制协议版本 1 服务。若多会话、事件、导出或回放命令返回 `unsupported_feature`，停止旧服务并从同一状态目录启动当前版本；旧根 `state.json` 会被非破坏地导入。
 
 ## 名册人数少于预期
 
@@ -39,7 +41,7 @@ Beta 5的旧命令可继续控制协议版本1服务。若多会话、事件、�
 运行：
 
 ```text
-python <skill>/scripts/live_chat.py typing --clear
+python <entrypoint> typing --clear
 ```
 
 同时检查编排流程是否在失败、超时和取消路径关闭 typing。

@@ -1,7 +1,6 @@
 """Multi-session catalog and versioned event stream."""
 
 import json
-import os
 import re
 import shutil
 import tempfile
@@ -19,6 +18,7 @@ from .config import (
     sessions_dir,
     sessions_path,
 )
+from .io_utils import atomic_json, atomic_jsonl
 from .models import initial_state
 from .store import StateStore
 from .validation import ValidationError, utf8_safe_text, validate_persisted_state, validate_scene
@@ -44,45 +44,6 @@ SESSION_ID = re.compile(r"^[0-9a-f]{32}$")
 
 def _utc_now():
     return datetime.now(timezone.utc).isoformat()
-
-
-def _atomic_json(path, value):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(".%s.%s.tmp" % (path.name, uuid.uuid4().hex))
-    try:
-        with temporary.open("x", encoding="utf-8", newline="\n") as handle:
-            json.dump(value, handle, ensure_ascii=False, separators=(",", ":"))
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(str(temporary), str(path))
-    finally:
-        try:
-            if temporary.exists():
-                temporary.unlink()
-        except OSError:
-            pass
-
-
-def _atomic_jsonl(path, values):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(".%s.%s.tmp" % (path.name, uuid.uuid4().hex))
-    try:
-        with temporary.open("x", encoding="utf-8", newline="\n") as handle:
-            for value in values:
-                json.dump(value, handle, ensure_ascii=False, separators=(",", ":"))
-                handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(str(temporary), str(path))
-    finally:
-        try:
-            if temporary.exists():
-                temporary.unlink()
-        except OSError:
-            pass
 
 
 def _bounded_text(value, field, maximum, allow_empty=False):
@@ -224,7 +185,7 @@ class SessionStore:
         now = _utc_now()
         state = validate_persisted_state(state)
         state["event_seq"] = 1
-        _atomic_json(self._state_path(session_id), state)
+        atomic_json(self._state_path(session_id), state)
         seed = {
             "scene": deepcopy(state["scene"]),
             "session": deepcopy(state["session"]),
@@ -241,14 +202,14 @@ class SessionStore:
             "source": {"host": host},
             "payload": seed if state["messages"] else {},
         }
-        _atomic_jsonl(self._events_path(session_id), [initial_event])
+        atomic_jsonl(self._events_path(session_id), [initial_event])
         entry = self._metadata(session_id, state, now, now)
         catalog = {
             "schema_version": CATALOG_SCHEMA_VERSION,
             "active_session_id": session_id,
             "sessions": [entry],
         }
-        _atomic_json(self.catalog_path, catalog)
+        atomic_json(self.catalog_path, catalog)
         return catalog
 
     def _metadata(self, session_id, state, created_at, updated_at, archived=False):
@@ -294,17 +255,16 @@ class SessionStore:
             return
         with tempfile.TemporaryDirectory(dir=str(self._session_dir(session_id))) as temporary:
             staged_path = Path(temporary) / "state.json"
-            _atomic_json(staged_path, state)
+            atomic_json(staged_path, state)
             staged = StateStore(staged_path, logger=self.logger)
-            for event in pending:
-                self._apply_to_store(staged, event["type"], event["payload"])
+            self._apply_events_to_store(staged, pending)
             with staged_path.open("r", encoding="utf-8") as handle:
                 recovered = json.load(handle)
         recovered["event_seq"] = events[-1]["seq"] if events else 0
-        _atomic_json(self._state_path(session_id), recovered)
+        atomic_json(self._state_path(session_id), recovered)
 
     def _persist_catalog(self):
-        _atomic_json(self.catalog_path, self._catalog)
+        atomic_json(self.catalog_path, self._catalog)
 
     def _read_events(self, session_id):
         events = []
@@ -334,33 +294,48 @@ class SessionStore:
             seen.add(event["event_id"])
         return events
 
-    def _apply_to_store(self, store, event_type, payload):
+    def _operation_for_event(self, event_type, payload):
         if event_type in {
             "conversation.created",
             "conversation.selected",
             "conversation.archived",
             "conversation.restored",
         }:
-            return {"ok": True}
+            return None
         if event_type == "message.created":
-            return store.add_message(payload)
+            return "message", payload
         if event_type == "typing.changed":
-            return store.set_typing(payload)
+            return "typing", payload
         if event_type == "typing.cleared":
-            return store.set_typing({"clear": True})
+            return "typing", {"clear": True}
         if event_type == "participants.replaced":
-            return store.set_participants(payload.get("participants"))
+            return "participants", payload.get("participants")
         if event_type == "plan.updated":
             if "session" not in payload:
                 raise ValidationError("invalid_session", "event payload must contain session")
-            return store.set_session(payload.get("session"))
+            return "session", payload.get("session")
         if event_type == "scene.updated":
-            return store.set_scene(payload.get("scene"))
+            return "scene", payload.get("scene")
         if event_type == "conversation.reset":
-            return store.reset(payload.get("scene"))
+            return "reset", payload.get("scene")
         if event_type == "conversation.seeded":
-            return store.seed(payload)
+            return "seed", payload
         raise ValidationError("invalid_event", "unsupported event type")
+
+    def _apply_events_to_store(self, store, events):
+        results = [None] * len(events)
+        operations = []
+        operation_indexes = []
+        for index, event in enumerate(events):
+            operation = self._operation_for_event(event["type"], event["payload"])
+            if operation is None:
+                results[index] = {"ok": True}
+            else:
+                operations.append(operation)
+                operation_indexes.append(index)
+        for index, result in zip(operation_indexes, store.apply_operations(operations)):
+            results[index] = result
+        return results
 
     def _emit(self, values, session_id=None):
         if not isinstance(values, list) or not values or len(values) > MAX_EVENTS:
@@ -404,19 +379,23 @@ class SessionStore:
                 staged_path = Path(temporary) / "state.json"
                 shutil.copy2(self._state_path(session_id), staged_path)
                 staged = StateStore(staged_path, logger=self.logger)
-                results = []
-                for event, should_apply in zip(canonical, apply_flags):
-                    if should_apply:
-                        results.append(self._apply_to_store(staged, event["type"], event["payload"]))
-                    else:
-                        results.append({"ok": True, "duplicate": True})
+                applied = iter(
+                    self._apply_events_to_store(
+                        staged,
+                        [event for event, should_apply in zip(canonical, apply_flags) if should_apply],
+                    )
+                )
+                results = [
+                    next(applied) if should_apply else {"ok": True, "duplicate": True}
+                    for should_apply in apply_flags
+                ]
                 with staged_path.open("r", encoding="utf-8") as handle:
                     final_state = json.load(handle)
 
             final_state["event_seq"] = (existing + new_values)[-1]["seq"]
 
-            _atomic_jsonl(self._events_path(session_id), existing + new_values)
-            _atomic_json(self._state_path(session_id), final_state)
+            atomic_jsonl(self._events_path(session_id), existing + new_values)
+            atomic_json(self._state_path(session_id), final_state)
             self._stores[session_id] = StateStore(self._state_path(session_id), logger=self.logger)
             entry = self._entry(session_id)
             refreshed = self._metadata(
@@ -438,6 +417,12 @@ class SessionStore:
             value["session_id"] = session_id
             return value
 
+    def summary(self):
+        """Return active-session health metadata without copying messages."""
+        with self._lock:
+            _, store = self._store()
+            return store.summary()
+
     def validate_all(self):
         with self._lock:
             for entry in self._catalog["sessions"]:
@@ -458,12 +443,6 @@ class SessionStore:
                 "sessions": entries,
             }
 
-    def show_session(self, session_id):
-        with self._lock:
-            value = deepcopy(self._entry(session_id))
-            value["state"] = self.snapshot(0, session_id)
-            return value
-
     def create_session(self, title=None, subtitle="", source=None):
         with self._lock:
             state = initial_state()
@@ -472,7 +451,7 @@ class SessionStore:
             session_id = uuid.uuid4().hex
             now = _utc_now()
             state["event_seq"] = 0
-            _atomic_json(self._state_path(session_id), state)
+            atomic_json(self._state_path(session_id), state)
             self._catalog["sessions"].append(self._metadata(session_id, state, now, now))
             self._catalog["active_session_id"] = session_id
             self._persist_catalog()
@@ -537,8 +516,9 @@ class SessionStore:
             session_id, _ = self._store(session_id)
             if not isinstance(after, int) or after < 0:
                 raise ValidationError("invalid_after", "after must be a non-negative integer")
-            events = [event for event in self._read_events(session_id) if event["seq"] > after]
-            return {"session_id": session_id, "events": events, "total": len(self._read_events(session_id))}
+            history = self._read_events(session_id)
+            events = [event for event in history if event["seq"] > after]
+            return {"session_id": session_id, "events": events, "total": len(history)}
 
     def emit_event(self, value, session_id=None):
         events, results = self._emit([value], session_id)

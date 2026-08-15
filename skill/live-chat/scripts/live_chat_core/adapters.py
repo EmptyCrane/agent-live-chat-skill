@@ -4,6 +4,15 @@ import os
 from pathlib import Path
 
 
+HOST_CAPABILITIES_TO_PROBE = (
+    "subagents",
+    "interrupt",
+    "browser_open",
+    "model_override",
+    "reasoning_override",
+)
+
+
 HOST_ADAPTERS = {
     "codex": {
         "id": "codex",
@@ -11,13 +20,7 @@ HOST_ADAPTERS = {
         "user_root": "$CODEX_HOME/skills",
         "user_fallback": ".codex/skills",
         "project_root": ".agents/skills",
-        "capabilities": [
-            "subagents",
-            "interrupt",
-            "browser_open",
-            "model_override",
-            "reasoning_override",
-        ],
+        "capabilities": HOST_CAPABILITIES_TO_PROBE,
     },
     "agents": {
         "id": "agents",
@@ -31,26 +34,14 @@ HOST_ADAPTERS = {
         "display_name": "Claude Code",
         "user_root": ".claude/skills",
         "project_root": ".claude/skills",
-        "capabilities": [
-            "subagents",
-            "interrupt",
-            "browser_open",
-            "model_override",
-            "reasoning_override",
-        ],
+        "capabilities": HOST_CAPABILITIES_TO_PROBE,
     },
     "copilot": {
         "id": "copilot",
         "display_name": "GitHub Copilot",
         "user_root": ".copilot/skills",
         "project_root": ".github/skills",
-        "capabilities": [
-            "subagents",
-            "interrupt",
-            "browser_open",
-            "model_override",
-            "reasoning_override",
-        ],
+        "capabilities": HOST_CAPABILITIES_TO_PROBE,
     },
     "generic": {
         "id": "generic",

@@ -37,6 +37,21 @@ class ReleaseTests(unittest.TestCase):
         self.assertIn("model override", hosts)
         self.assertNotIn("Luna", skill + hosts)
 
+    def test_references_defer_to_the_active_entrypoint(self):
+        references = [
+            (SKILL / "references" / name).read_text(encoding="utf-8")
+            for name in ("orchestration.md", "protocol.md", "troubleshooting.md")
+        ]
+        self.assertTrue(all("<entrypoint>" in text or "SKILL.md" in text for text in references))
+        command_lines = [
+            line.strip()
+            for text in references
+            for line in text.splitlines()
+            if line.strip().startswith("python ")
+        ]
+        self.assertTrue(command_lines)
+        self.assertFalse(any("live_chat.py" in line for line in command_lines))
+
     def test_static_release_audit(self):
         path = ROOT / "tools" / "audit_release.py"
         spec = importlib.util.spec_from_file_location("audit_release", path)
