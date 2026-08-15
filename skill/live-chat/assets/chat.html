@@ -376,20 +376,36 @@
     .sheet-backdrop[hidden] { display: none; }
     .member-sheet {
       max-height: min(72vh, 560px);
+      max-height: min(72dvh, 560px);
+      min-height: 0;
       display: flex;
       flex-direction: column;
+      overflow: hidden;
       border-radius: 18px 18px 0 0;
       background: var(--surface-raised);
       box-shadow: 0 -12px 34px rgba(20,35,43,.22);
       animation: sheet-enter 190ms ease-out both;
     }
     @keyframes sheet-enter { from { transform: translateY(16px); opacity: 0; } to { transform: none; opacity: 1; } }
-    .sheet-handle { width: 34px; height: 4px; margin: 7px auto 2px; border-radius: 2px; background: var(--line); }
-    .sheet-header { display: flex; align-items: center; gap: 8px; padding: 11px 15px 9px; border-bottom: 1px solid var(--line); }
+    .sheet-handle { flex: none; width: 34px; height: 4px; margin: 7px auto 2px; border-radius: 2px; background: var(--line); }
+    .sheet-header { flex: none; display: flex; align-items: center; gap: 8px; padding: 11px 15px 9px; border-bottom: 1px solid var(--line); }
     .sheet-title { flex: 1; font-size: 16px; font-weight: 700; }
     .sheet-close { width: 34px; height: 34px; border-radius: 50%; background: var(--chat-bg); cursor: pointer; font-size: 20px; line-height: 1; }
     .sheet-close:hover { background: var(--line); }
-    #sheet-member-list { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+    .sheet-scroll {
+      min-height: 0;
+      flex: 1;
+      overflow-x: hidden;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      touch-action: pan-y;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(62,83,94,.40) transparent;
+    }
+    .sheet-scroll::-webkit-scrollbar { width: 6px; }
+    .sheet-scroll::-webkit-scrollbar-thumb { border-radius: 3px; background: rgba(62,83,94,.40); }
+    #sheet-member-list { overflow: visible; padding-bottom: max(12px, env(safe-area-inset-bottom)); }
 
     @media (min-width: 521px) and (max-width: 819px) {
       body { padding: 14px; }
@@ -552,14 +568,16 @@
         <div id="sheet-title" class="sheet-title">Participants</div>
         <button id="sheet-close" class="sheet-close" type="button" aria-label="Close participant list">×</button>
       </div>
-      <div id="sheet-history" class="history-picker" hidden>
-        <label for="sheet-session-select">Conversation history</label>
-        <select id="sheet-session-select" class="history-select"></select>
-        <button id="sheet-compare" class="compare-button" type="button" hidden>Compare with active</button>
-        <div id="sheet-comparison" class="comparison-panel" hidden></div>
+      <div id="sheet-scroll" class="sheet-scroll">
+        <div id="sheet-history" class="history-picker" hidden>
+          <label for="sheet-session-select">Conversation history</label>
+          <select id="sheet-session-select" class="history-select"></select>
+          <button id="sheet-compare" class="compare-button" type="button" hidden>Compare with active</button>
+          <div id="sheet-comparison" class="comparison-panel" hidden></div>
+        </div>
+        <div id="sheet-session" class="session-detail" hidden></div>
+        <div id="sheet-member-list" class="member-list" data-empty-text="Participants will appear here"></div>
       </div>
-      <div id="sheet-session" class="session-detail" hidden></div>
-      <div id="sheet-member-list" class="member-list" data-empty-text="Participants will appear here"></div>
     </section>
   </div>
 
