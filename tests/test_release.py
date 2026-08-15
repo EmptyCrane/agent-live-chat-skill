@@ -103,6 +103,19 @@ class ReleaseTests(unittest.TestCase):
             if line.lstrip().startswith("!["):
                 self.assertNotIn("releases/download/", line)
 
+    def test_readmes_pin_the_beta8_copy_installer(self):
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        chinese = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+        command = (
+            "npx --yes skills add "
+            "https://github.com/EmptyCrane/agent-live-chat-skill/releases/download/"
+            "v0.1.0-beta.8/live-chat-0.1.0-beta.8.zip "
+            "--global --agent codex --yes --copy"
+        )
+        self.assertEqual(readme.count(command), 1)
+        self.assertEqual(chinese.count(command), 1)
+        self.assertNotIn("v0.1.0-beta.6", readme + chinese)
+
     def test_python_ci_audits_the_candidate_commit(self):
         workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
         self.assertIn(
