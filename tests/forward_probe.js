@@ -17,6 +17,10 @@ async function main() {
     const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
     await page.goto(url, { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => {
+      const status = document.documentElement.dataset.templatesReady;
+      return status === 'ready' || status === 'unavailable';
+    });
+    await page.waitForFunction(() => {
       const bar = document.getElementById('session-bar');
       return bar && bar.dataset.status === 'completed';
     });

@@ -36,6 +36,12 @@ async function main() {
     return value;
   }
 
+  async function waitForTemplates(page) {
+    await page.waitForFunction(
+      () => document.documentElement.dataset.templatesReady === 'ready',
+    );
+  }
+
   function makeSession(status = 'running', language = 'zh-CN') {
     const terminal = ['waiting_user', 'completed', 'stopped', 'partial_failure'].includes(status);
     const english = language === 'en';
@@ -172,6 +178,7 @@ async function main() {
     try {
       const page = await context.newPage();
       await page.goto(url + '?lang=zh-CN', { waitUntil: 'domcontentloaded' });
+      await waitForTemplates(page);
       await page.waitForFunction(
         expected => Number(document.getElementById('member-total').textContent) === expected,
         expectedMembers,
@@ -221,6 +228,7 @@ async function main() {
       if (request.method() !== 'GET') pagePosts.push(request.method() + ' ' + request.url());
     });
     await historyPage.goto(url + '?lang=en', { waitUntil: 'domcontentloaded' });
+    await waitForTemplates(historyPage);
     await historyPage.waitForFunction(() => document.querySelectorAll('#rail-session-select option').length >= 2);
     await historyPage.locator('#rail-session-select').selectOption(archivedSessionId);
     await historyPage.waitForFunction(
@@ -264,6 +272,7 @@ async function main() {
       });
       const page = await context.newPage();
       await page.goto(url + '?lang=zh-CN', { waitUntil: 'domcontentloaded' });
+      await waitForTemplates(page);
       await page.waitForFunction(() => document.querySelectorAll('.message-row').length >= 1);
       if (item.openMembers) {
         await page.locator('#member-trigger').click();
@@ -345,6 +354,7 @@ async function main() {
         });
         const page = await context.newPage();
         await page.goto(url + '?lang=zh-CN', { waitUntil: 'domcontentloaded' });
+        await waitForTemplates(page);
         await page.waitForFunction(expected => document.getElementById('session-bar').dataset.status === expected, status);
         const value = await page.evaluate(() => ({
           status: document.getElementById('session-bar').dataset.status,
@@ -367,6 +377,7 @@ async function main() {
     const themeContext = await browser.newContext({ viewport: { width: 390, height: 760 }, colorScheme: 'dark' });
     const themePage = await themeContext.newPage();
     await themePage.goto(url + '?lang=en', { waitUntil: 'domcontentloaded' });
+    await waitForTemplates(themePage);
     await themePage.locator('#theme-toggle').click();
     await themePage.locator('#theme-toggle').click();
     await themePage.reload({ waitUntil: 'domcontentloaded' });
@@ -386,6 +397,7 @@ async function main() {
     });
     const blockedPage = await blockedStorage.newPage();
     await blockedPage.goto(url + '?lang=zh-CN', { waitUntil: 'domcontentloaded' });
+    await waitForTemplates(blockedPage);
     const storageFallback = await blockedPage.evaluate(() => ({
       attribute: document.documentElement.getAttribute('data-theme'),
       label: document.getElementById('theme-toggle').getAttribute('aria-label'),
@@ -396,6 +408,33 @@ async function main() {
     }
     async function captureDocumentation(language, filename) {
       await seedFixture(language);
+      const expectedTemplate = language === 'en'
+        ? 'Worldbuilding council · v1'
+        : '世界观共创 · v1';
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        const probeContext = await browser.newContext({
+          viewport: { width: 1200, height: 800 },
+          locale: language === 'en' ? 'en-US' : 'zh-CN',
+        });
+        try {
+          const probe = await probeContext.newPage();
+          const nonGet = [];
+          probe.on('request', request => {
+            if (request.method() !== 'GET') nonGet.push(request.method() + ' ' + request.url());
+          });
+          await probe.goto(url + '?lang=' + encodeURIComponent(language), { waitUntil: 'domcontentloaded' });
+          await waitForTemplates(probe);
+          await probe.waitForFunction(() => document.querySelectorAll('.message-row').length >= 6);
+          const detail = await probe.locator('#rail-session').textContent();
+          if (!detail.includes(expectedTemplate) || detail.includes('worldbuilding_council') || nonGet.length) {
+            throw new Error('localized template cold-load mismatch: ' + JSON.stringify({
+              language, attempt, detail, nonGet,
+            }));
+          }
+        } finally {
+          await probeContext.close();
+        }
+      }
       const context = await browser.newContext({
         viewport: { width: 1200, height: 800 },
         colorScheme: 'light',
@@ -404,6 +443,7 @@ async function main() {
       try {
         const page = await context.newPage();
         await page.goto(url + '?lang=' + encodeURIComponent(language), { waitUntil: 'domcontentloaded' });
+        await waitForTemplates(page);
         await page.waitForFunction(() => document.querySelectorAll('.message-row').length >= 6);
         const value = await page.evaluate(() => ({
           language: document.documentElement.lang,

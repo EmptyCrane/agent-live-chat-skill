@@ -117,6 +117,35 @@ class CliTests(unittest.TestCase):
             )
         return result
 
+    def run_cli_with_cp936_bootstrap(self, *arguments, input_value=b"", check=True):
+        """Send raw UTF-8 after Python initially configures its stdio as CP936."""
+        environment = self.environment.copy()
+        environment.pop("PYTHONUTF8", None)
+        environment["PYTHONIOENCODING"] = "cp936"
+        command = [
+            sys.executable,
+            "-B",
+            str(ENTRY),
+            "--state-dir",
+            str(self.state_dir),
+        ] + list(arguments)
+        result = subprocess.run(
+            command,
+            input=input_value,
+            capture_output=True,
+            check=False,
+            env=environment,
+            timeout=15,
+        )
+        stdout = result.stdout.decode("utf-8", errors="strict")
+        stderr = result.stderr.decode("utf-8", errors="strict")
+        if check and result.returncode:
+            self.fail(
+                "CP936 bootstrap CLI failed (%s)\nstdout:\n%s\nstderr:\n%s"
+                % (result.returncode, stdout, stderr)
+            )
+        return result, stdout, stderr
+
     def test_http_error_shapes_are_normalized(self):
         cases = [
             ({"error": {"message": "structured failure"}}, "structured failure"),
@@ -224,6 +253,187 @@ class CliTests(unittest.TestCase):
         self.assertEqual(after_reset["session"]["status"], "idle")
         self.run_cli("participants", "clear")
         self.assertEqual(json.loads(self.run_cli("--json", "status").stdout)["participants"], [])
+
+    @unittest.skipIf(SKIP_PROCESS_TESTS, PROCESS_SKIP_REASON)
+    def test_utf8_stdio_overrides_cp936_for_structured_stdin_and_errors(self):
+        self.run_cli("start", "--port", "0", "--no-legacy")
+        proposal = {
+            "background": "生产事故：订单服务出现乱码 🚨\n需要跨团队诊断",
+            "objective": "找出根因并保留中文",
+            "deliverable": "可执行的修复清单",
+            "criteria": ["中文无变化", "emoji 保留 🧭"],
+        }
+        _, stdout, _ = self.run_cli_with_cp936_bootstrap(
+            "--json",
+            "templates",
+            "apply",
+            "incident_diagnosis",
+            "--lang",
+            "zh-CN",
+            "--stdin",
+            "--request-id",
+            "9" * 32,
+            input_value=json.dumps(proposal, ensure_ascii=False, indent=2).encode("utf-8"),
+        )
+        applied = json.loads(stdout)
+        self.assertEqual(applied["stage"], "plan_approval")
+        status = json.loads(self.run_cli("--json", "status").stdout)
+        self.assertEqual(status["session"]["background"], proposal["background"])
+        decision_id = status["session"]["pending_decision"]["id"]
+
+        response = "批准。保留多行说明：\n第一批先诊断；\n第二批再复核。✅"
+        _, stdout, _ = self.run_cli_with_cp936_bootstrap(
+            "--json",
+            "decision",
+            "resolve",
+            decision_id,
+            "approve",
+            "--option-id",
+            "approve",
+            "--stdin",
+            input_value=response.encode("utf-8"),
+        )
+        self.assertEqual(json.loads(stdout)["resolution"]["response"], response)
+
+        event = {
+            "type": "message.created",
+            "source": {"host": "codex"},
+            "payload": {"sender": "诊断智能体 🧪", "text": "日志显示：编码正常\n继续排查。🔎"},
+        }
+        _, stdout, _ = self.run_cli_with_cp936_bootstrap(
+            "--json",
+            "events",
+            "emit",
+            "--stdin",
+            input_value=json.dumps(event, ensure_ascii=False, indent=2).encode("utf-8"),
+        )
+        emitted = json.loads(stdout)
+        self.assertEqual(emitted["event"]["payload"], event["payload"])
+
+        session_value = json.loads(self.session_json())
+        session_value["roles"] = json.loads(self.run_cli("--json", "status").stdout)[
+            "session"
+        ]["roles"]
+        session_value["background"] = "会话背景：中文与 emoji 🌐\n第二行"
+        session_value["objective"] = "稳定往返所有字符"
+        _, stdout, _ = self.run_cli_with_cp936_bootstrap(
+            "--json",
+            "session",
+            "set",
+            "--stdin",
+            input_value=json.dumps(session_value, ensure_ascii=False, indent=2).encode("utf-8"),
+        )
+        self.assertEqual(json.loads(stdout)["session"]["background"], session_value["background"])
+
+        invalid, stdout, stderr = self.run_cli_with_cp936_bootstrap(
+            "--json",
+            "events",
+            "emit",
+            "--stdin",
+            input_value="{\"文本\": \"未闭合 🚫\"".encode("utf-8"),
+            check=False,
+        )
+        self.assertNotEqual(invalid.returncode, 0)
+        error = json.loads(stdout)
+        self.assertEqual(error["error"]["code"], "cli_error")
+        self.assertIn("event input must be valid JSON", error["error"]["message"])
+        self.assertEqual(stderr, "")
+        self.assertNotIn("UnicodeDecodeError", stdout)
+
+    @unittest.skipIf(SKIP_PROCESS_TESTS, PROCESS_SKIP_REASON)
+    def test_concurrent_start_converges_and_stop_releases_log(self):
+        for attempt in range(3):
+            command = [
+                sys.executable,
+                "-B",
+                str(ENTRY),
+                "--state-dir",
+                str(self.state_dir),
+                "--json",
+                "start",
+                "--port",
+                "0",
+                "--no-legacy",
+            ]
+            processes = [
+                subprocess.Popen(
+                    command,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    env=self.environment,
+                )
+                for _ in range(2)
+            ]
+            results = [process.communicate(timeout=20) for process in processes]
+            for process, (stdout, stderr) in zip(processes, results):
+                self.assertEqual(process.returncode, 0, stderr.decode("utf-8"))
+            instances = [json.loads(stdout.decode("utf-8")) for stdout, _ in results]
+            self.assertEqual(
+                {(item["instance_id"], item["pid"], item["url"]) for item in instances},
+                {(instances[0]["instance_id"], instances[0]["pid"], instances[0]["url"])},
+            )
+
+            stopped = self.run_cli("stop")
+            self.assertIn("服务已停止", stopped.stdout)
+            self.assertFalse((self.state_dir / "instance.json").exists())
+            log_path = self.state_dir / "server.log"
+            moved_path = self.state_dir / ("server.released-%d.log" % attempt)
+            log_path.rename(moved_path)
+            moved_path.rename(log_path)
+
+        duplicate = self.run_cli("stop", check=False)
+        self.assertNotEqual(duplicate.returncode, 0)
+        self.assertIn("not running", duplicate.stderr)
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows log handles need repeated coverage")
+    def test_windows_repeated_stop_immediately_releases_server_log(self):
+        for index in range(3):
+            self.run_cli("start", "--port", "0", "--no-legacy")
+            self.run_cli("stop")
+            log_path = self.state_dir / "server.log"
+            moved_path = self.state_dir / ("server-%d.log" % index)
+            log_path.rename(moved_path)
+            moved_path.rename(log_path)
+
+    @unittest.skipIf(SKIP_PROCESS_TESTS, PROCESS_SKIP_REASON)
+    def test_doctor_reports_stale_and_malformed_instance_records_without_repair(self):
+        self.state_dir.mkdir(parents=True)
+        record_path = self.state_dir / "instance.json"
+        malformed = "{malformed instance"
+        record_path.write_text(malformed, encoding="utf-8")
+        result = self.run_cli(
+            "--json", "doctor", "--host", "generic", "--port", "0", check=False
+        )
+        check = next(
+            item for item in json.loads(result.stdout)["checks"]
+            if item["id"] == "instance_record"
+        )
+        self.assertEqual(check["status"], "warn")
+        self.assertEqual(record_path.read_text(encoding="utf-8"), malformed)
+
+        stale = {
+            "instance_id": "stale-instance",
+            "pid": 2147483647,
+            "url": "http://127.0.0.1:1",
+        }
+        record_path.write_text(json.dumps(stale), encoding="utf-8")
+        result = self.run_cli(
+            "--json", "doctor", "--host", "generic", "--port", "0", check=False
+        )
+        check = next(
+            item for item in json.loads(result.stdout)["checks"]
+            if item["id"] == "instance_record"
+        )
+        self.assertEqual(check["status"], "warn")
+        self.assertIn("stale", check["detail"])
+        self.assertEqual(json.loads(record_path.read_text(encoding="utf-8")), stale)
+
+        started = json.loads(
+            self.run_cli("--json", "start", "--port", "0", "--no-legacy").stdout
+        )
+        replacement = json.loads(record_path.read_text(encoding="utf-8"))
+        self.assertEqual(replacement["instance_id"], started["instance_id"])
+        self.assertNotEqual(replacement["instance_id"], stale["instance_id"])
 
     def test_rejects_ambiguous_message_sources(self):
         result = self.run_cli("msg", "Alice", "text", "--stdin", input_text="other", check=False)

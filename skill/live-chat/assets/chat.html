@@ -1340,16 +1340,24 @@
     }
 
     async function loadTemplates() {
+      let status = 'unavailable';
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 4000);
       try {
-        const response = await fetch('/api/templates?lang=' + encodeURIComponent(locale), { cache: 'no-store' });
+        const response = await fetch('/api/templates?lang=' + encodeURIComponent(locale), {
+          cache: 'no-store', signal: controller.signal,
+        });
         if (!response.ok) return;
         const catalog = await response.json();
         const next = {};
         for (const template of catalog.templates || []) next[template.id] = template.name;
         templateNames = next;
-        sessionSignature = '';
+        status = 'ready';
       } catch (error) {
         /* Template metadata is optional when connected to an older service. */
+      } finally {
+        clearTimeout(timeout);
+        document.documentElement.dataset.templatesReady = status;
       }
     }
 
@@ -1473,9 +1481,11 @@
     });
 
     renderMembers(true);
-    loadTemplates();
-    pollSessions();
-    schedulePoll(0);
+    document.documentElement.dataset.templatesReady = 'loading';
+    loadTemplates().then(() => {
+      pollSessions();
+      schedulePoll(0);
+    });
   </script>
 </body>
 </html>
