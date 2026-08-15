@@ -17,7 +17,7 @@ DEFAULT_SCENARIOS = ROOT / "tests" / "behavior_scenarios.json"
 
 ANCHORS = {
     "explicit_bypass": ("SKILL.md", 'Treat only explicit wording such as "start directly"'),
-    "bounded_workflow": ("SKILL.md", "no more than three roles and three rounds by default"),
+    "bounded_workflow": ("SKILL.md", "no more than three rounds by default"),
     "criteria_completion": ("SKILL.md", "Complete only when the goal is met"),
     "single_batch_questions": ("SKILL.md", "Ask one compact batch"),
     "approval_before_dispatch": ("SKILL.md", "Do not dispatch subagents until the user approves it"),
@@ -31,6 +31,18 @@ ANCHORS = {
     "resume_only_unfinished": ("SKILL.md", "dispatch only unfinished roles"),
     "persisted_decision": ("references/orchestration.md", "保存拒绝"),
     "reject_stops_dispatch": ("references/orchestration.md", "停止本场会话，不派发任何新任务"),
+    "template_recommendation": ("SKILL.md", "recommend one bundled template"),
+    "template_override": ("SKILL.md", "another template or a blank custom plan"),
+    "large_cast_checkpoint": (
+        "references/templates.md",
+        "总数超过8时先请求 `checkpoint`",
+    ),
+    "wave_dispatch": ("SKILL.md", "continue in waves"),
+    "capacity_not_retry": ("SKILL.md", "do not consume its retry budget"),
+    "exact_roster_limit": (
+        "references/orchestration.md",
+        "固定为已批准名册数量",
+    ),
 }
 
 METRIC_INVARIANTS = {

@@ -17,8 +17,8 @@ class BehaviorEvaluationTests(unittest.TestCase):
         spec.loader.exec_module(module)
         result = module.evaluate()
         self.assertTrue(result["passed"])
-        self.assertEqual(result["scenario_count"], 8)
-        self.assertEqual(result["passed_count"], 8)
+        self.assertEqual(result["scenario_count"], 11)
+        self.assertEqual(result["passed_count"], 11)
         self.assertEqual(set(result["metrics"].values()), {0})
         self.assertEqual(result["kind"], "offline-policy-contract")
 

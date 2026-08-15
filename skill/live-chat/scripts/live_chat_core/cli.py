@@ -31,11 +31,13 @@ from .config import (
     migrate_legacy_state,
     state_path,
     sessions_dir,
+    templates_asset_path,
 )
 from .adapters import HOST_ADAPTERS, public_adapter
 from .io_utils import atomic_json
 from .server import LiveChatHTTPServer
 from .sessions import MAX_EVENTS, SessionStore, validate_event_input
+from .templates import load_catalog, template_by_id, template_catalog
 from .validation import validate_seed
 
 
@@ -339,6 +341,7 @@ def _doctor(args):
     )
     required = [
         chat_asset_path(),
+        templates_asset_path(),
         Path(__file__).resolve().parents[1] / "live_chat.py",
         Path(__file__).resolve().parents[2] / "SKILL.md",
     ]
@@ -350,6 +353,22 @@ def _doctor(args):
         "missing: %s" % ", ".join(missing) if missing else "required runtime files are present",
         "Reinstall the Skill from a verified archive." if missing else "",
     )
+    try:
+        catalog = load_catalog()
+        _doctor_check(
+            checks,
+            "template_catalog",
+            "pass",
+            "%d validated bundled templates" % len(catalog["templates"]),
+        )
+    except RuntimeError as exc:
+        _doctor_check(
+            checks,
+            "template_catalog",
+            "fail",
+            str(exc),
+            "Reinstall the Skill from a verified archive.",
+        )
     try:
         state_dir.mkdir(parents=True, exist_ok=True)
         probe = state_dir / (".doctor-%s.tmp" % uuid.uuid4().hex)
@@ -650,6 +669,43 @@ def _decision(args):
     return 0
 
 
+def _templates(args):
+    if args.action == "list":
+        value = template_catalog(args.lang)
+    elif args.action == "show":
+        value = {
+            "catalog_version": load_catalog()["catalog_version"],
+            "language": args.lang,
+            "template": template_by_id(args.template_id, args.lang),
+        }
+    else:
+        try:
+            payload = json.load(sys.stdin)
+        except ValueError as exc:
+            raise CliError("template application must be valid JSON: %s" % exc) from exc
+        if not isinstance(payload, dict):
+            raise CliError("template application must be a JSON object")
+        template = template_by_id(args.template_id, args.lang)
+        payload.update({
+            "template_id": args.template_id,
+            "template_version": template["version"],
+            "language": args.lang,
+            "request_id": args.request_id or uuid.uuid4().hex,
+        })
+        if args.session_id:
+            payload["session_id"] = args.session_id
+        payload.setdefault("source", {"host": args.host})
+        url = _feature_url(args, "templates")
+        value = _request_json(
+            url + "/api/templates/apply",
+            method="POST",
+            payload=payload,
+            timeout=12,
+        )
+    _emit(args, value, json.dumps(value, ensure_ascii=False, indent=2))
+    return 0
+
+
 def _adapter(args):
     value = public_adapter(args.host, args.scope, Path.home(), Path.cwd(), os.environ)
     _emit(args, value, json.dumps(value, ensure_ascii=False, indent=2))
@@ -939,6 +995,26 @@ def build_parser():
         "--host", choices=tuple(HOST_ADAPTERS) + ("manual",), default="manual"
     )
     decision_resolve.set_defaults(handler=_decision)
+
+    templates = commands.add_parser("templates", help="list, inspect, or apply workflow templates")
+    template_commands = templates.add_subparsers(dest="action", required=True)
+    templates_list = template_commands.add_parser("list", help="list bundled templates")
+    templates_list.add_argument("--lang", choices=("en", "zh-CN"), default="en")
+    templates_list.set_defaults(handler=_templates)
+    templates_show = template_commands.add_parser("show", help="show one bundled template")
+    templates_show.add_argument("template_id")
+    templates_show.add_argument("--lang", choices=("en", "zh-CN"), default="en")
+    templates_show.set_defaults(handler=_templates)
+    templates_apply = template_commands.add_parser("apply", help="create a template-based proposal")
+    templates_apply.add_argument("template_id")
+    templates_apply.add_argument("--lang", choices=("en", "zh-CN"), default="en")
+    templates_apply.add_argument("--stdin", action="store_true", required=True)
+    templates_apply.add_argument("--session-id")
+    templates_apply.add_argument("--request-id")
+    templates_apply.add_argument(
+        "--host", choices=tuple(HOST_ADAPTERS) + ("manual",), default="manual"
+    )
+    templates_apply.set_defaults(handler=_templates)
 
     adapter = commands.add_parser("adapter", help="show host adapter metadata")
     adapter.add_argument("action", choices=("show",))

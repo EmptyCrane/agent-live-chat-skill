@@ -607,9 +607,11 @@
         progress: (current, max, phase, status) => 'Round ' + current + '/' + max + ' · ' + phase + ' · ' + status,
         labels: {
           objective: 'Objective', deliverable: 'Deliverable', criteria: 'Completion criteria',
-          roles: 'Participant roles', workflow: 'Workflow', decision: 'Waiting for decision',
+          roles: 'Participant roles', workflow: 'Workflow', template: 'Template', decision: 'Waiting for decision',
           result: 'Result', reason: 'Status note'
         },
+        templateVersion: (name, version) => name + ' · v' + version,
+        dispatch: (roles, concurrent, waves) => roles + ' roles · ' + concurrent + ' concurrent · ' + waves + (waves === 1 ? ' wave' : ' waves'),
         requestedModel: value => value + ' (requested)', requestedSuffix: value => ' (requested: ' + value + ')',
         modelLine: (model, effort) => 'Model: ' + model + ' · Reasoning: ' + effort,
         tone: value => 'Tone: ' + value, style: value => 'Style: ' + value,
@@ -640,7 +642,9 @@
           not_started: '准备中', independent: '独立观点', challenge: '交叉质询', synthesis: '收敛总结'
         },
         progress: (current, max, phase, status) => '第 ' + current + '/' + max + ' 轮 · ' + phase + ' · ' + status,
-        labels: { objective: '目标', deliverable: '交付物', criteria: '完成条件', roles: '参与角色', workflow: '编排', decision: '等待决策', result: '结果', reason: '状态说明' },
+        labels: { objective: '目标', deliverable: '交付物', criteria: '完成条件', roles: '参与角色', workflow: '编排', template: '使用模板', decision: '等待决策', result: '结果', reason: '状态说明' },
+        templateVersion: (name, version) => name + ' · v' + version,
+        dispatch: (roles, concurrent, waves) => roles + ' 个角色 · ' + concurrent + ' 个并发 · ' + waves + ' 个批次',
         requestedModel: value => value + '（请求）', requestedSuffix: value => '（请求：' + value + '）',
         modelLine: (model, effort) => '模型：' + model + ' · 推理：' + effort,
         tone: value => '语气：' + value, style: value => '表达：' + value,
@@ -697,6 +701,7 @@
     let membersSignature = '';
     let sceneSignature = '';
     let sessionSignature = '';
+    let templateNames = {};
     let count = 0;
     let epoch = null;
     let instanceId = null;
@@ -1006,6 +1011,14 @@
 
       if (session.workflow) {
         const limits = session.workflow.limits || {};
+        const template = session.workflow.template;
+        if (template && template.id) {
+          appendDetailLabel(fragment, T.labels.template);
+          appendDetailText(
+            fragment,
+            T.templateVersion(templateNames[template.id] || template.id, template.version || '-'),
+          );
+        }
         appendDetailLabel(fragment, T.labels.workflow);
         appendDetailText(
           fragment,
@@ -1013,6 +1026,11 @@
             + ' · rounds ' + (limits.max_rounds || '-')
             + ' · retries ' + (limits.max_retries ?? '-'),
         );
+        const dispatch = session.workflow.dispatch || {};
+        const roleCount = Array.isArray(session.roles) ? session.roles.length : 0;
+        const concurrent = Math.max(1, Math.min(roleCount || 1, Number(dispatch.max_concurrent) || 1));
+        const waves = roleCount ? Math.ceil(roleCount / concurrent) : 0;
+        appendDetailText(fragment, T.dispatch(roleCount, concurrent, waves));
       }
 
       if (session.pending_decision) {
@@ -1321,6 +1339,20 @@
       }
     }
 
+    async function loadTemplates() {
+      try {
+        const response = await fetch('/api/templates?lang=' + encodeURIComponent(locale), { cache: 'no-store' });
+        if (!response.ok) return;
+        const catalog = await response.json();
+        const next = {};
+        for (const template of catalog.templates || []) next[template.id] = template.name;
+        templateNames = next;
+        sessionSignature = '';
+      } catch (error) {
+        /* Template metadata is optional when connected to an older service. */
+      }
+    }
+
     function openMemberSheet() {
       if (!narrowLayout.matches) return;
       sheetBackdrop.hidden = false;
@@ -1441,6 +1473,7 @@
     });
 
     renderMembers(true);
+    loadTemplates();
     pollSessions();
     schedulePoll(0);
   </script>

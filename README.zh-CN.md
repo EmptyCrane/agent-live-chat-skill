@@ -36,6 +36,7 @@ npx --yes skills list --global --agent codex
 
 - **真实对话：** 按实际完成顺序展示子智能体回复，宿主不会伪造参与者或台词。
 - **先规划再执行：** 复用已有上下文，只补问关键缺口，并在派发前展示有明确边界的会话方案供用户确认。
+- **自适应模板：** 从十个双语评审、会诊、创作和角色扮演模板中推荐合适起点，同时允许用户完整修改方案。
 - **受控编排：** 支持并行评审、顺序流水线、批评修订和辩论仲裁，并使用确定性的轮次、角色与重试预算。
 - **过程可见：** 展示参与者、输入状态、人工决策、角色运行状态、请求与实际模型、进度、证据和最终结果。
 - **会话持久化：** 使用稳定 ID 保存会话，可选择、归档、恢复、导出和非破坏回放。
@@ -77,6 +78,14 @@ flowchart LR
 
 模型标识属于宿主能力，不是角色人设。精确请求的模型不可用时，默认策略会暂停并请求确认。只有宿主能够提供相关信息时，页面才会展示请求模型和实际模型。
 
+### 内置模板
+
+当前开发版包含六个生产力模板：架构评审、代码变更评审、故障会诊、内容润色、观点辩论和创意筛选；另有编剧室、世界观共创、虚构悬疑推理和主持式冒险四个娱乐模板。
+
+生产力模板分别规定最少、建议和模板人数上限。娱乐模板只规定最少与建议人数：更大的阵容会依据宿主并发能力分批运行，超过八名角色必须先确认，所有会话仍受100名参与者的技术保护上限约束。套用模板只持久化方案和审批决策，不会派发智能体。
+
+宿主会推荐一个匹配模板并简述理由。用户可以改选模板、修改角色与限制，或从空白自定义方案开始。
+
 ### 界面语言
 
 浏览器界面提供完整英文和简体中文文案。可在页面 URL 中加入 `?lang=en` 或 `?lang=zh-CN` 显式选择；未指定时，中文浏览器环境使用中文，其他环境使用英文。场景标题、参与者名称和聊天正文属于用户数据，不会自动翻译。
@@ -109,6 +118,9 @@ python skill/live-chat/scripts/live_chat.py --json doctor --host codex
 python skill/live-chat/scripts/live_chat.py --json start
 python skill/live-chat/scripts/live_chat.py sessions create --title "架构评审"
 python skill/live-chat/scripts/live_chat.py sessions list --archived
+python skill/live-chat/scripts/live_chat.py --json templates list --lang zh-CN
+python skill/live-chat/scripts/live_chat.py --json templates show architecture_review --lang zh-CN
+python skill/live-chat/scripts/live_chat.py --json templates apply architecture_review --lang zh-CN --stdin
 python skill/live-chat/scripts/live_chat.py decision request --file decision.json
 python skill/live-chat/scripts/live_chat.py decision resolve DECISION_ID approve --option-id approve
 python skill/live-chat/scripts/live_chat.py export SESSION_ID --format events --file history.json
@@ -141,7 +153,7 @@ python skill/live-chat/scripts/live_chat.py stop
 ```bash
 python -m unittest discover -s tests -p "test_*.py" -v
 python tools/eval_skill.py --json
-python tools/package_release.py --version 0.1.0-beta.7
+python tools/package_release.py --version 0.1.0-beta.8
 ```
 
 视觉检查使用锁定版本的 Playwright 开发依赖：
@@ -155,7 +167,7 @@ npx playwright install chromium
 
 ## Beta 状态与限制
 
-- 一键安装仍锁定已审计的 `v0.1.0-beta.6` 正式包。当前开发分支面向 Beta 7：新增会话 Schema 2、事件协议 2、方案审批、持久化人工决策、受控编排策略、运行轨迹、GET-only SSE、消息筛选和结果比较，同时继续读取 v1 数据。
+- 一键安装仍锁定已审计的 `v0.1.0-beta.6` 正式包。当前开发分支面向 Beta 8：在 Beta 7 会话与事件基础上增加十个内置模板、自适应角色策略、大型阵容显式确认和分批派发元数据，同时继续读取 v1 数据。
 - 内置行为评测属于离线策略契约检查；真实宿主与模型的端到端验收仍是独立发布门禁。
 - Claude Code 与 GitHub Copilot 已通过格式检查，但尚未完成对应宿主的真实冒烟测试。
 - GitHub 托管的 macOS runner 目前会跳过受 [runner-images #14409](https://github.com/actions/runner-images/issues/14409) 影响的分离进程 localhost 生命周期；其余 macOS 测试仍会运行，POSIX 生命周期由 Ubuntu 验证。

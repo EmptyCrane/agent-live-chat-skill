@@ -274,6 +274,8 @@ class MultiSessionServerTests(unittest.TestCase):
         self.assertEqual(health["protocol_version"], 1)
         self.assertEqual(health["event_protocol_version"], 2)
         self.assertEqual(health["session_schema_version"], 2)
+        self.assertIn("templates", health["features"])
+        self.assertIn("adaptive_dispatch", health["features"])
         created = self.request("/api/sessions", "POST", {"title": "API session"})
         session_id = created["session"]["session_id"]
         self.request("/api/msg", "POST", {"sender": "Legacy client", "text": "compatible"})
@@ -287,6 +289,27 @@ class MultiSessionServerTests(unittest.TestCase):
         self.assertEqual([message["text"] for message in state["messages"]], ["compatible", "normalized"])
         history = self.request("/api/events?after=0&session=" + session_id)
         self.assertEqual(history["events"][-1]["source"]["host"], "copilot")
+
+    def test_template_catalog_and_apply_endpoints(self):
+        catalog = self.request("/api/templates?lang=zh-CN")
+        self.assertEqual(catalog["catalog_version"], 1)
+        self.assertEqual(len(catalog["templates"]), 10)
+        detail = self.request("/api/templates/writers_room?lang=zh-CN")
+        self.assertEqual(detail["template"]["name"], "编剧室")
+        applied = self.request("/api/templates/apply", "POST", {
+            "template_id": "architecture_review",
+            "template_version": 1,
+            "language": "en",
+            "request_id": "8" * 32,
+            "objective": "Review one architecture",
+            "deliverable": "A recommendation",
+            "criteria": ["Risks are explicit"],
+            "source": {"host": "codex"},
+        })
+        self.assertEqual(applied["stage"], "plan_approval")
+        state = self.request("/api/state")
+        self.assertEqual(state["session"]["workflow"]["template"]["id"], "architecture_review")
+        self.assertEqual(len(state["participants"]), 4)
 
     def test_decision_lifecycle_is_idempotent_and_session_isolated(self):
         created = self.request("/api/sessions", "POST", {"title": "Decision session"})

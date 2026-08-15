@@ -30,6 +30,12 @@ DEFAULT_SESSION = {
     "workflow": {
         "strategy": "parallel_panel",
         "approval": "required",
+        "template": None,
+        "dispatch": {
+            "max_concurrent": 3,
+            "source": "conservative_default",
+            "mode": "waves",
+        },
         "limits": {
             "max_rounds": 3,
             "max_participants": 3,

@@ -18,6 +18,7 @@ from .config import (
     SERVICE_NAME,
 )
 from .validation import ValidationError, require_mapping, validate_since
+from .templates import template_by_id, template_catalog
 
 
 class LiveChatHTTPServer(ThreadingHTTPServer):
@@ -147,6 +148,8 @@ class LiveChatHandler(BaseHTTPRequestHandler):
                     "workflow_strategies",
                     "run_tracing",
                     "sse",
+                    "templates",
+                    "adaptive_dispatch",
                 ],
             })
         return value
@@ -194,6 +197,22 @@ class LiveChatHandler(BaseHTTPRequestHandler):
                 query = parse_qs(parsed.query, keep_blank_values=True)
                 include_archived = query.get("include_archived", ["0"])[0] in ("1", "true")
                 self._json(self.server.store.list_sessions(include_archived))
+                return
+            if parsed.path == "/api/templates":
+                query = parse_qs(parsed.query, keep_blank_values=True)
+                self._json(template_catalog(query.get("lang", ["en"])[0]))
+                return
+            if parsed.path.startswith("/api/templates/"):
+                template_id = parsed.path[len("/api/templates/"):]
+                if not template_id or "/" in template_id:
+                    self._error("not_found", "endpoint not found", 404)
+                    return
+                query = parse_qs(parsed.query, keep_blank_values=True)
+                self._json({
+                    "catalog_version": 1,
+                    "language": query.get("lang", ["en"])[0],
+                    "template": template_by_id(template_id, query.get("lang", ["en"])[0]),
+                })
                 return
             if parsed.path == "/api/events":
                 self._require_sessions()
@@ -270,6 +289,11 @@ class LiveChatHandler(BaseHTTPRequestHandler):
             elif parsed.path == "/api/decisions/resolve":
                 self._require_sessions()
                 result = self.server.store.resolve_decision(
+                    body, body.get("session_id"), body.get("source")
+                )
+            elif parsed.path == "/api/templates/apply":
+                self._require_sessions()
+                result = self.server.store.apply_template(
                     body, body.get("session_id"), body.get("source")
                 )
             elif parsed.path == "/api/shutdown":

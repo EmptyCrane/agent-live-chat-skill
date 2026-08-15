@@ -181,18 +181,27 @@ class CliTests(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertEqual(json.loads(stdout.getvalue()), catalog)
 
+    def test_template_list_and_show_work_without_a_running_service(self):
+        listed = self.run_cli("--json", "templates", "list", "--lang", "zh-CN")
+        catalog = json.loads(listed.stdout)
+        self.assertEqual(len(catalog["templates"]), 10)
+        shown = self.run_cli(
+            "--json", "templates", "show", "writers_room", "--lang", "zh-CN"
+        )
+        self.assertEqual(json.loads(shown.stdout)["template"]["name"], "编剧室")
+
     @unittest.skipIf(SKIP_PROCESS_TESTS, PROCESS_SKIP_REASON)
     def test_full_lifecycle_and_stdin_message(self):
         started = self.run_cli("--json", "start", "--port", "0", "--no-legacy")
         instance = json.loads(started.stdout)
         self.assertTrue(instance["url"].startswith("http://127.0.0.1:"))
-        self.assertEqual(instance["app_version"], "0.1.0-beta.7")
+        self.assertEqual(instance["app_version"], "0.1.0-beta.8")
         self.run_cli("msg", "Alice", "--stdin", input_text="Line one\nLine two")
         self.run_cli("participants", "set", "Alice", "Waiting", "Alice")
         self.run_cli("session", "set", "--stdin", input_text=self.session_json())
         status = self.run_cli("--json", "status")
         value = json.loads(status.stdout)
-        self.assertEqual(value["app_version"], "0.1.0-beta.7")
+        self.assertEqual(value["app_version"], "0.1.0-beta.8")
         self.assertTrue(value["active_session_id"])
         self.assertEqual(len(value["sessions"]), 1)
         self.assertEqual(value["messages"], 1)
@@ -244,6 +253,9 @@ class CliTests(unittest.TestCase):
         self.assertEqual(value["exit_code"], 2)
         self.assertIn("python", {check["id"] for check in value["checks"]})
         self.assertIn("state_directory", {check["id"] for check in value["checks"]})
+        template_check = next(check for check in value["checks"] if check["id"] == "template_catalog")
+        self.assertEqual(template_check["status"], "pass")
+        self.assertIn("10 validated", template_check["detail"])
 
     @unittest.skipIf(SKIP_PROCESS_TESTS, PROCESS_SKIP_REASON)
     def test_doctor_checks_running_service_and_corrupt_catalog(self):
@@ -326,6 +338,37 @@ class CliTests(unittest.TestCase):
             "--option-id", "approve",
         )
         self.assertTrue(json.loads(duplicate.stdout)["duplicate"])
+
+    @unittest.skipIf(SKIP_PROCESS_TESTS, PROCESS_SKIP_REASON)
+    def test_template_apply_export_and_replay_preserve_metadata(self):
+        self.run_cli("start", "--port", "0", "--no-legacy")
+        payload = {
+            "background": "CLI template test",
+            "objective": "Review the design",
+            "deliverable": "A recommendation",
+            "criteria": ["Risks are explicit"],
+        }
+        applied = json.loads(self.run_cli(
+            "--json", "templates", "apply", "architecture_review",
+            "--lang", "en", "--stdin", "--request-id", "7" * 32,
+            "--host", "codex", input_text=json.dumps(payload),
+        ).stdout)
+        self.assertEqual(applied["stage"], "plan_approval")
+        status = json.loads(self.run_cli("--json", "status").stdout)
+        session_id = status["active_session_id"]
+        self.assertEqual(status["session"]["workflow"]["template"]["id"], "architecture_review")
+        export_path = Path(self.temp.name) / "template-export.json"
+        self.run_cli("export", session_id, "--format", "snapshot", "--file", str(export_path))
+        replayed = json.loads(self.run_cli(
+            "--json", "replay", "--file", str(export_path), "--speed", "0"
+        ).stdout)
+        replay_state = json.loads(
+            self.run_cli("--json", "sessions", "show", replayed["session_id"]).stdout
+        )["state"]
+        self.assertEqual(
+            replay_state["session"]["workflow"]["template"]["id"],
+            "architecture_review",
+        )
 
     @unittest.skipIf(SKIP_PROCESS_TESTS, PROCESS_SKIP_REASON)
     def test_invalid_replay_does_not_create_a_session(self):

@@ -17,11 +17,11 @@ async function main() {
   });
   const cases = [
     { name: '360-light', viewport: { width: 360, height: 760 }, colorScheme: 'light' },
-    { name: '400-members', viewport: { width: 400, height: 760 }, colorScheme: 'light', openMembers: true },
+    { name: '390-members', viewport: { width: 390, height: 760 }, colorScheme: 'light', openMembers: true },
     { name: '768-light', viewport: { width: 768, height: 900 }, colorScheme: 'light' },
     { name: '1200-light', viewport: { width: 1200, height: 800 }, colorScheme: 'light' },
     { name: '1200-dark', viewport: { width: 1200, height: 800 }, colorScheme: 'dark' },
-    { name: '400-reduced', viewport: { width: 400, height: 760 }, colorScheme: 'light', reducedMotion: 'reduce' },
+    { name: '390-reduced', viewport: { width: 390, height: 760 }, colorScheme: 'light', reducedMotion: 'reduce' },
   ];
   const results = [];
 
@@ -31,8 +31,9 @@ async function main() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     });
-    if (!response.ok) throw new Error(endpoint + ' returned ' + response.status);
-    return response.json();
+    const value = await response.json();
+    if (!response.ok) throw new Error(endpoint + ' returned ' + response.status + ': ' + JSON.stringify(value));
+    return value;
   }
 
   function makeSession(status = 'running', language = 'zh-CN') {
@@ -41,7 +42,9 @@ async function main() {
     const criteria = english
       ? ['Every role contributes', 'Key risks are explicit', 'Next steps are actionable']
       : ['角色观点完整', '关键风险明确', '下一步可以执行'];
-    const names = english ? ['Architect', 'Critic', 'Operator'] : ['成员 1', '成员 2', '成员 3'];
+    const names = english
+      ? ['Architect', 'Critic', 'Operator', 'Researcher', 'Designer', 'Engineer', 'Analyst', 'Reviewer', 'Planner', 'Editor', 'Facilitator', 'Observer']
+      : Array.from({ length: 12 }, (_, index) => '成员 ' + (index + 1));
     const session = {
       status,
       background: english ? 'The live view is ready for an international release review' : '新版直播页面已完成名册和主题升级',
@@ -89,7 +92,9 @@ async function main() {
       workflow: {
         strategy: 'parallel_panel',
         approval: status === 'waiting_user' ? 'required' : 'approved',
-        limits: { max_rounds: 3, max_participants: 3, max_retries: 1, wall_time_seconds: 900 },
+        limits: { max_rounds: 3, max_participants: 12, max_retries: 1, wall_time_seconds: 900 },
+        template: { id: 'worldbuilding_council', version: 1 },
+        dispatch: { max_concurrent: 4, source: 'user_configured', mode: 'waves' },
       },
       pending_decision: status === 'waiting_user' ? {
         id: 'a'.repeat(32),
@@ -124,6 +129,15 @@ async function main() {
       } : null,
       stop_reason: status === 'running' ? '' : (english ? 'Visual acceptance state' : '用于会话状态视觉验收'),
     };
+    for (let index = session.roles.length; index < names.length; index += 1) {
+      session.roles.push({
+        name: names[index],
+        role: english ? 'Worldbuilding specialist' : '世界构建专家',
+        focus: english ? `Distinct worldbuilding responsibility ${index + 1}` : `独立世界构建职责 ${index + 1}`,
+        tone: '', style: '', instructions: [],
+        model: { requested: 'default', effective: 'host-managed', reasoning_effort: 'default', fallback_reason: '' },
+      });
+    }
     return session;
   }
 
@@ -192,7 +206,9 @@ async function main() {
       subtitle: 'Read-only selector check',
     });
     const archivedSessionId = archivedCreated.session.session_id;
-    await post('/api/participants', { participants: ['Architect', 'Critic', 'Operator'] });
+    await post('/api/participants', {
+      participants: ['Architect', 'Critic', 'Operator', 'Researcher', 'Designer', 'Engineer', 'Analyst', 'Reviewer', 'Planner', 'Editor', 'Facilitator', 'Observer'],
+    });
     await post('/api/session', { session: makeSession('completed', 'en') });
     await post('/api/msg', { sender: 'History agent', text: 'Archived message remains readable.' });
     await post('/api/sessions/select', { session_id: liveSessionId });
@@ -267,6 +283,7 @@ async function main() {
         sessionObjective: document.getElementById('session-objective').textContent,
         roleModel: document.querySelector('#rail-session .session-role-meta')?.textContent || '',
         roleTone: document.querySelector('#rail-session .session-role-setting')?.textContent || '',
+        templateDetail: document.getElementById('rail-session').textContent,
         allDesktopMembersVisible: (() => {
           const list = document.getElementById('desktop-member-list');
           const members = [...list.querySelectorAll('.member-item')];
@@ -285,6 +302,10 @@ async function main() {
       if (!metrics.sessionObjective.includes('目标驱动式群聊')) throw new Error(item.name + ' objective mismatch');
       if (!metrics.roleModel.includes('balanced-model') || !metrics.roleTone.includes('清晰、友好')) {
         throw new Error(item.name + ' role runtime settings are missing');
+      }
+      if (!metrics.templateDetail.includes('世界观共创 · v1')
+          || !metrics.templateDetail.includes('12 个角色 · 4 个并发 · 3 个批次')) {
+        throw new Error(item.name + ' template dispatch summary is missing');
       }
       const screenshot = path.join(outputDir, 'live-chat-' + item.name + '.png');
       await page.screenshot({ path: screenshot, fullPage: false });
@@ -343,7 +364,7 @@ async function main() {
       }
     }
 
-    const themeContext = await browser.newContext({ viewport: { width: 400, height: 760 }, colorScheme: 'dark' });
+    const themeContext = await browser.newContext({ viewport: { width: 390, height: 760 }, colorScheme: 'dark' });
     const themePage = await themeContext.newPage();
     await themePage.goto(url + '?lang=en', { waitUntil: 'domcontentloaded' });
     await themePage.locator('#theme-toggle').click();
@@ -359,7 +380,7 @@ async function main() {
       throw new Error('manual theme was not remembered: ' + JSON.stringify(rememberedTheme));
     }
 
-    const blockedStorage = await browser.newContext({ viewport: { width: 400, height: 760 } });
+    const blockedStorage = await browser.newContext({ viewport: { width: 390, height: 760 } });
     await blockedStorage.addInitScript(() => {
       Object.defineProperty(window, 'localStorage', { configurable: true, get() { throw new Error('blocked'); } });
     });
@@ -390,14 +411,17 @@ async function main() {
           progress: document.getElementById('session-progress').textContent,
           count: document.getElementById('rail-count').textContent,
           roleMeta: document.querySelector('#rail-session .session-role-meta')?.textContent || '',
+          templateDetail: document.getElementById('rail-session').textContent,
           horizontalOverflow: document.body.scrollWidth > window.innerWidth,
         }));
         const english = language === 'en';
         if (value.language !== language || value.horizontalOverflow) throw new Error('documentation locale mismatch: ' + JSON.stringify(value));
-        if (english && (!value.membersTitle.includes('Participants') || !value.progress.includes('Round 1/3') || !value.roleMeta.includes('Model:'))) {
+        if (english && (!value.membersTitle.includes('Participants') || !value.progress.includes('Round 1/3') || !value.roleMeta.includes('Model:')
+            || !value.templateDetail.includes('Worldbuilding council · v1') || !value.templateDetail.includes('12 roles · 4 concurrent · 3 waves'))) {
           throw new Error('English UI is incomplete: ' + JSON.stringify(value));
         }
-        if (!english && (!value.membersTitle.includes('群聊成员') || !value.progress.includes('第 1/3 轮') || !value.roleMeta.includes('模型：'))) {
+        if (!english && (!value.membersTitle.includes('群聊成员') || !value.progress.includes('第 1/3 轮') || !value.roleMeta.includes('模型：')
+            || !value.templateDetail.includes('世界观共创 · v1') || !value.templateDetail.includes('12 个角色 · 4 个并发 · 3 个批次'))) {
           throw new Error('Chinese UI is incomplete: ' + JSON.stringify(value));
         }
         const screenshot = path.join(docsDir || outputDir, filename);

@@ -21,6 +21,7 @@ from .config import (
 from .io_utils import atomic_json, atomic_jsonl
 from .models import initial_state
 from .store import StateStore
+from .templates import large_cast_decision, prepare_application
 from .validation import (
     DECISION_ACTIONS,
     DECISION_ID,
@@ -715,6 +716,176 @@ class SessionStore:
                 "decision": decision,
                 "resolution": resolution,
                 "result": results[0],
+            }
+
+    @staticmethod
+    def _large_cast_approved(history, decision_id):
+        if not isinstance(decision_id, str) or not DECISION_ID.fullmatch(decision_id):
+            raise ValidationError(
+                "invalid_large_cast_decision_id",
+                "large_cast_decision_id must be 32 lowercase hexadecimal characters",
+            )
+        requested = None
+        resolved = None
+        for event in history:
+            payload = event.get("payload", {})
+            decision = payload.get("decision")
+            if not isinstance(decision, dict) or decision.get("id") != decision_id:
+                continue
+            if event["type"] == "decision.requested":
+                requested = decision
+            elif event["type"] == "decision.resolved":
+                resolved = payload.get("resolution")
+        return bool(
+            requested
+            and requested.get("kind") == "checkpoint"
+            and isinstance(resolved, dict)
+            and resolved.get("action") == "approve"
+            and resolved.get("option_id") == "continue"
+        )
+
+    def apply_template(self, value, session_id=None, source=None):
+        if not isinstance(value, dict):
+            raise ValidationError("invalid_template_application", "template application must be an object")
+        with self._lock:
+            session_id, store = self._store(session_id, writable=True)
+            history = self._read_events(session_id)
+            application = prepare_application(value)
+            request_id = application["request_id"]
+            approval = application["session"]["workflow"]["approval"]
+            suffix = "decision" if approval == "required" else "plan"
+            expected_ids = {
+                "template-%s-participants" % request_id,
+                "template-%s-%s" % (request_id, suffix),
+            }
+            if application["scene"] is not None:
+                expected_ids.add("template-%s-scene" % request_id)
+            existing = [event for event in history if event.get("event_id") in expected_ids]
+            if existing and approval == "required":
+                for event in existing:
+                    decision = event.get("payload", {}).get("decision")
+                    if isinstance(decision, dict):
+                        application = prepare_application(value, decision.get("created_at", ""))
+                        break
+
+            role_count = len(application["participants"])
+            threshold = application["template"]["role_policy"]["confirmation_threshold"]
+            if threshold is not None and role_count > threshold and not existing:
+                confirmation_id = application.get("large_cast_decision_id")
+                if not confirmation_id:
+                    decision = large_cast_decision(application)
+                    result = self.request_decision(
+                        decision,
+                        session_id,
+                        source or value.get("source"),
+                    )
+                    return {
+                        "ok": True,
+                        "stage": "large_cast_confirmation",
+                        "session_id": session_id,
+                        "template": {
+                            "id": application["template"]["id"],
+                            "version": application["template"]["version"],
+                        },
+                        "participants": application["participants"],
+                        "waves": application["waves"],
+                        "decision": result["decision"],
+                        "event": result["event"],
+                    }
+                if confirmation_id == request_id:
+                    raise ValidationError(
+                        "large_cast_request_conflict",
+                        "use a new request_id after resolving the large-cast checkpoint",
+                        409,
+                    )
+                if not self._large_cast_approved(history, confirmation_id):
+                    raise ValidationError(
+                        "large_cast_confirmation_required",
+                        "the large-cast checkpoint must be approved with the continue option",
+                        409,
+                    )
+
+            if not existing:
+                for event in history:
+                    decision = event.get("payload", {}).get("decision")
+                    if isinstance(decision, dict) and decision.get("id") == request_id:
+                        raise ValidationError(
+                            "decision_conflict",
+                            "request_id already belongs to another decision",
+                            409,
+                        )
+
+            snapshot = store.snapshot(0)
+            session = snapshot["session"]
+            if not existing:
+                dispatched = bool(
+                    snapshot["messages"]
+                    or session.get("run", {}).get("id")
+                    or any(
+                        item.get("attempt", 0) > 0
+                        for item in session.get("run", {}).get("participants", [])
+                    )
+                )
+                if (
+                    session.get("status") not in {"idle", "paused"}
+                    or session.get("pending_decision") is not None
+                    or dispatched
+                ):
+                    raise ValidationError(
+                        "template_not_applicable",
+                        "templates can only be applied before participant dispatch",
+                        409,
+                    )
+
+            if not existing and approval == "required":
+                application = prepare_application(value, _utc_now())
+
+            event_source = source or value.get("source") or {"host": "manual"}
+            events = []
+            if application["scene"] is not None:
+                events.append({
+                    "event_id": "template-%s-scene" % request_id,
+                    "type": "scene.updated",
+                    "source": event_source,
+                    "payload": {"scene": application["scene"]},
+                })
+            events.append({
+                "event_id": "template-%s-participants" % request_id,
+                "type": "participants.replaced",
+                "source": event_source,
+                "payload": {"participants": application["participants"]},
+            })
+            if approval == "required":
+                events.append({
+                    "event_id": "template-%s-decision" % request_id,
+                    "type": "decision.requested",
+                    "source": event_source,
+                    "payload": {
+                        "decision": application["decision"],
+                        "session": application["session"],
+                    },
+                })
+            else:
+                events.append({
+                    "event_id": "template-%s-plan" % request_id,
+                    "type": "plan.updated",
+                    "source": event_source,
+                    "payload": {"session": application["session"]},
+                })
+            canonical, results = self._emit(events, session_id)
+            return {
+                "ok": True,
+                "stage": "plan_approval" if approval == "required" else "ready",
+                "session_id": session_id,
+                "template": {
+                    "id": application["template"]["id"],
+                    "version": application["template"]["version"],
+                },
+                "participants": application["participants"],
+                "waves": application["waves"],
+                "decision": application["decision"],
+                "events": canonical,
+                "results": results,
             }
 
     def emit_event(self, value, session_id=None):

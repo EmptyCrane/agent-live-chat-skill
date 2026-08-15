@@ -12,7 +12,7 @@
 - `revision`：每次成功写操作递增。
 - `total`：当前 epoch 的消息数量。
 - `session`：目标、交付物、完成条件、模型策略、角色运行配置、轮次、阶段和结束状态。
-- `workflow`：受控策略、批准状态，以及轮次、角色、重试和墙钟时间预算。
+- `workflow`：受控策略、批准状态、可选模板标识、并发派发策略，以及轮次、角色、重试和墙钟时间预算。
 - `pending_decision`：当前唯一待处理人工决策；没有时为 null。
 - `run`：运行 ID、参与者生命周期和每轮精简摘要。
 - `result`：最终摘要、逐项完成条件、证据引用、残留分歧和下一步。
@@ -29,6 +29,8 @@
 - `GET /api/state?since=N`：返回从消息下标 N 开始的增量消息，以及完整 scene、session、participants 和 typing。
 - `GET /api/state?since=N&session=<id>`：读取指定活动或归档会话，不改变CLI写入目标。
 - `GET /api/sessions?include_archived=1`：列出会话目录。
+- `GET /api/templates?lang=en|zh-CN`：列出本地内置模板及本地化角色蓝图。
+- `GET /api/templates/<id>?lang=en|zh-CN`：读取一个模板；未知模板返回404。
 - `GET /api/events?session=<id>&after=N`：按会话序号读取事件。
 - `GET /api/stream?session=<id>&after_revision=N`：GET-only SSE 修订通知；客户端收到通知后重新读取 state。连接约20秒后由客户端重连，失败时回退轮询。
 
@@ -47,6 +49,7 @@
 - `POST /api/events/batch`：`{session_id?,events:[...]}`；原子验证并提交1–5000个事件。
 - `POST /api/decisions`：请求结构化人工决策，可包含完整 `session` 草案。
 - `POST /api/decisions/resolve`：以 `approve|edit|reject|respond` 解决当前决策。
+- `POST /api/templates/apply`：把内置模板原子转换为参与者、完整 session 和待审批决策；仅允许尚未派发的会话。
 - `POST /api/shutdown`：停止匹配的本地服务。
 
 所有 POST 使用 UTF-8 JSON 和 `Content-Type: application/json`。错误格式为：
@@ -72,6 +75,9 @@ python <entrypoint> doctor --host codex
 python <entrypoint> demo --lang zh-CN --port 0
 python <entrypoint> sessions list --archived
 python <entrypoint> sessions create --title "架构评审"
+python <entrypoint> templates list --lang zh-CN
+python <entrypoint> templates show architecture_review --lang zh-CN
+python <entrypoint> templates apply architecture_review --lang zh-CN --stdin --request-id <32-hex>
 python <entrypoint> sessions select <session-id>
 python <entrypoint> export <session-id> --format events --file history.json
 python <entrypoint> replay --file history.json --speed 0
@@ -83,6 +89,28 @@ python <entrypoint> adapter show codex
 ```
 
 消息正文来源三选一：位置参数、`--stdin`、`--file`。长文本或多行文本优先使用 stdin。
+
+模板 apply 的 stdin 为对象，至少包含 `background`、`objective`、`deliverable` 和1–5条 `criteria`。CLI根据模板 ID 补入当前模板版本、语言和 request ID；可选提交完整 `roles`、`model_policy`、`scene`、`approval=required|bypassed` 以及：
+
+```json
+{
+  "workflow": {
+    "strategy": "parallel_panel",
+    "dispatch": {
+      "max_concurrent": 3,
+      "source": "conservative_default",
+      "mode": "waves"
+    },
+    "limits": {
+      "max_rounds": 3,
+      "max_retries": 1,
+      "wall_time_seconds": null
+    }
+  }
+}
+```
+
+HTTP直接调用还必须提交 `template_id`、`template_version`、`language` 和 `request_id`。相同 request ID 与相同内容幂等；内容不同返回 `event_conflict`。生产力模板超过自身人数上限返回 `template_role_limit`。娱乐模板超过8人时首次 apply 只返回 `large_cast_confirmation` checkpoint；解决后使用新的 request ID 并提交 `large_cast_decision_id`，才能生成 `plan_approval`。apply 不启动任何智能体。
 
 ## 事件信封
 
@@ -165,11 +193,20 @@ seed JSON 示例：
       "completed_participants": []
     },
     "workflow": {
-      "strategy": "parallel_panel",
+      "strategy": "critic_revise",
       "approval": "approved",
+      "template": {
+        "id": "code_change_review",
+        "version": 1
+      },
+      "dispatch": {
+        "max_concurrent": 2,
+        "source": "conservative_default",
+        "mode": "waves"
+      },
       "limits": {
         "max_rounds": 3,
-        "max_participants": 3,
+        "max_participants": 2,
         "max_retries": 1,
         "wall_time_seconds": 900
       }
@@ -202,6 +239,7 @@ seed JSON 示例：
 - session阶段为 `not_started|independent|challenge|synthesis`；活动会话当前轮次为1–99且不超过上限。
 - 活动session要求目标、交付物、1–5条完成条件和至少2个唯一角色；角色与已完成成员必须引用名册。
 - workflow策略为`parallel_panel|sequential_pipeline|critic_revise|debate_judge`；新会话批准状态为`required|approved|bypassed|rejected`。迁移的旧会话使用只读兼容标记 `legacy`。显式 v2 workflow 在 `approved|bypassed` 前不得进入 running。
+- `workflow.template` 为 null 或 `{id,version}`；ID只允许小写字母、数字和下划线。`dispatch.max_concurrent`为1–100，source为`host_reported|user_configured|conservative_default`，mode当前固定为`waves`。没有模板或旧快照使用空模板及保守并发默认值。
 - workflow限制轮次1–99、参与者2–100、单角色重试0–3、可选墙钟时间1–86400秒。run的尝试次数和轮次摘要不得越过这些预算。
 - completed 的显式 v2 workflow 必须包含 result，且每条 session criteria 都有唯一的 `met` 结果；达到轮次上限但未满足时使用 waiting_user 或 partial_failure。
 - `model_policy.default`为1–200字符的宿主模型标识或`inherit`；`fallback`为`ask|inherit|available`，默认`ask`。

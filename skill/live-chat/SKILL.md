@@ -25,11 +25,13 @@ Use a host-neutral plan-first intake. Do not attempt to switch the host's collab
 
 Extract background, objective, deliverable, one to five completion criteria, language, constraints, requested roles, model policy, time budget, and explicit approval bypass from the request. Reuse information already present. Ask one compact batch containing only missing choices that materially change the session.
 
-Choose a workflow strategy, roles, round limit, retry limit, and completion test. Show a concise proposal in the user's language. Do not dispatch subagents until the user approves it. Treat only explicit wording such as "start directly" or "无需确认" as approval bypass; urgency alone is not a bypass. On approval record `workflow.approval=approved`; on an explicit bypass record `bypassed`.
+Read `references/templates.md`, recommend one bundled template when it materially fits, and give one short reason. Let the user choose another template or a blank custom plan. Templates accelerate role and workflow design; they never replace missing critical intake or user approval.
+
+Choose a workflow strategy, roles, round limit, retry limit, dispatch concurrency, and completion test. Show a concise proposal in the user's language. Do not dispatch subagents until the user approves it. Treat only explicit wording such as "start directly" or "无需确认" as approval bypass; urgency alone is not a bypass. On approval record `workflow.approval=approved`; on an explicit bypass record `bypassed`.
 
 Before dispatching real subagents, read `references/orchestration.md` for role selection, prompt fields, model resolution, round transitions, completion, and recovery. Keep responsibilities and behavior separate from model requests. Do not infer host availability from a vendor catalog: probe the active host surface, and never guess an effective model.
 
-Tell the user which roles and strategy will participate, that the default is at most three roles and three rounds with one retry per role, and that they can pause, continue, or stop at any time.
+Tell the user which roles and strategy will participate, the approved roster size, dispatch concurrency, estimated waves, round and retry limits, and that they can pause, continue, or stop at any time. Use each productivity template's bounded role policy. For entertainment templates use the recommended roster unless distinct responsibilities justify more roles; never expand merely to make the chat busier.
 
 ## Start the local display
 
@@ -53,6 +55,15 @@ python <skill>/scripts/live_chat.py --json sessions create --title "Topic"
 
 Keep the returned `session_id`. Existing commands write to the active conversation. Never reset or seed another conversation to start a new task.
 
+Inspect or apply the selected template through the bundled interface:
+
+```text
+python <skill>/scripts/live_chat.py --json templates show <template-id> --lang <en|zh-CN>
+python <skill>/scripts/live_chat.py --json templates apply <template-id> --lang <en|zh-CN> --stdin
+```
+
+Pass the complete intake, actual role roster, workflow limits, dispatch metadata, and a fresh request ID. Template apply only saves a proposal; it never dispatches. For an entertainment roster above eight roles, resolve the returned `checkpoint` with the `continue` option, then apply again with a new request ID and the resolved checkpoint ID. Do not silently add roles after approval.
+
 For a proposal that requires confirmation, register the proposed roles and submit one `plan_approval` decision containing the full draft session through `decision request --stdin`. Wait for the host user's `approve`, `edit`, `reject`, or `respond` answer, then persist it with `decision resolve`. An approval leaves the session paused; set it to running only immediately before real dispatch. If the user edits the proposal, issue a new decision with a new ID after applying the edit.
 
 Reset the scene, register every role in display order, then set a complete session document:
@@ -67,13 +78,15 @@ An active session must contain objective, deliverable, one to five criteria, a m
 
 ## Run goal-driven strategies
 
-Select one bounded strategy in `references/orchestration.md`: `parallel_panel`, `sequential_pipeline`, `critic_revise`, or `debate_judge`. Follow its three-phase soft guardrail, using no more than three roles and three rounds by default:
+Select one bounded strategy in `references/orchestration.md`: `parallel_panel`, `sequential_pipeline`, `critic_revise`, or `debate_judge`. Follow its three-phase soft guardrail. Use the template's approved roster and no more than three rounds by default:
 
 1. `independent`: collect independent views without cross-anchoring.
 2. `challenge`: challenge disagreements, evidence, and risk.
 3. `synthesis`: form the conclusion, residual objections, and next actions.
 
 Respect a user-specified limit. End early when the objective is met.
+
+Treat roster size and dispatch concurrency separately. Use a numeric host limit when the active host exposes one; honor a lower user limit; otherwise use three with `source=conservative_default` without claiming it is the host maximum. Dispatch at most that many unfinished roles at once and continue in waves. If the host rejects work because capacity is full, reduce concurrency, requeue the role, and do not consume its retry budget. Never fabricate a missing participant.
 
 At each round start, atomically set `status=running`, round number, phase, and an empty `completed_participants`, then push a system separator. Turn typing on before dispatching each participant.
 
@@ -109,6 +122,7 @@ For an empty reply, request output once; on a second empty result, close typing 
 
 - Read `references/hosts.md` for host capability and installation differences.
 - Read `references/orchestration.md` for role selection, rounds, completion, pause, and recovery.
+- Read `references/templates.md` when recommending, customizing, or applying a bundled template.
 - Read `references/protocol.md` for HTTP, CLI, session, and seed structures.
 - Read `references/ui.md` when modifying or validating the page.
 - Read `references/troubleshooting.md` for service, state, or browser failures.

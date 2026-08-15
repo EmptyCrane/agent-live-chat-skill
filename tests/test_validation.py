@@ -118,6 +118,11 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(normalized["schema_version"], 2)
         self.assertEqual(normalized["session"]["workflow"]["strategy"], "parallel_panel")
         self.assertEqual(normalized["session"]["workflow"]["approval"], "legacy")
+        self.assertIsNone(normalized["session"]["workflow"]["template"])
+        self.assertEqual(
+            normalized["session"]["workflow"]["dispatch"]["source"],
+            "conservative_default",
+        )
         self.assertIsNone(normalized["session"]["pending_decision"])
 
     def test_validates_workflow_decision_run_and_result(self):
@@ -200,6 +205,29 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(normalized["status"], "waiting_user")
         self.assertEqual(normalized["round"]["current"], 0)
         self.assertEqual(normalized["roles"], [])
+
+    def test_allows_preplan_large_cast_checkpoint(self):
+        value = {
+            "status": "waiting_user",
+            "criteria": [],
+            "roles": [],
+            "round": {
+                "current": 0,
+                "max": 3,
+                "phase": "not_started",
+                "completed_participants": [],
+            },
+            "pending_decision": {
+                "id": "e" * 32,
+                "kind": "checkpoint",
+                "prompt": "Continue with nine roles?",
+                "options": [{"id": "continue", "label": "Continue"}],
+                "created_at": "",
+            },
+        }
+        normalized = validate_session(value, [])
+        self.assertEqual(normalized["round"]["current"], 0)
+        self.assertEqual(normalized["pending_decision"]["kind"], "checkpoint")
 
     def test_v2_workflow_cannot_run_before_approval(self):
         value = self.session()

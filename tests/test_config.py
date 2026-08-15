@@ -63,7 +63,7 @@ class ConfigTests(unittest.TestCase):
             self.assertIn("kept", (new / "state.json").read_text(encoding="utf-8"))
 
     def test_version_is_beta(self):
-        self.assertEqual(APP_VERSION, "0.1.0-beta.7")
+        self.assertEqual(APP_VERSION, "0.1.0-beta.8")
 
     def test_legacy_path_remains_codex_branded(self):
         path = legacy_default_state_dir(

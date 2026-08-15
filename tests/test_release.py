@@ -20,7 +20,7 @@ class ReleaseTests(unittest.TestCase):
             capture_output=True,
             check=True,
         )
-        self.assertEqual(result.stdout.strip(), "0.1.0-beta.7")
+        self.assertEqual(result.stdout.strip(), "0.1.0-beta.8")
         self.assertEqual(
             {item.name for item in SKILL.iterdir()},
             {"SKILL.md", "agents", "assets", "scripts", "references"},

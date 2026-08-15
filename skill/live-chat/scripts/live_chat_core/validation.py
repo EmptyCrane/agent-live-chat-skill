@@ -29,12 +29,15 @@ WORKFLOW_STRATEGIES = {
     "debate_judge",
 }
 WORKFLOW_APPROVALS = {"required", "approved", "bypassed", "rejected", "legacy"}
+DISPATCH_SOURCES = {"host_reported", "user_configured", "conservative_default"}
+DISPATCH_MODES = {"waves"}
 DECISION_KINDS = {"plan_approval", "clarification", "model_fallback", "checkpoint"}
 DECISION_ACTIONS = {"approve", "edit", "reject", "respond"}
 RUN_PARTICIPANT_STATUSES = {"pending", "running", "completed", "failed", "skipped"}
 CRITERION_STATUSES = {"met", "partial", "unmet"}
 DECISION_ID = re.compile(r"^[0-9a-f]{32}$")
 OPTION_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
+TEMPLATE_ID = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 
 
 class ValidationError(ValueError):
@@ -153,11 +156,46 @@ def _timestamp(value, field):
     return _text(value, field, 0, 64)
 
 
+def _validate_workflow_template(value):
+    if value is None:
+        return None
+    require_mapping(value, "workflow template")
+    template_id = _text(value.get("id", ""), "template_id", 1, 64)
+    if not TEMPLATE_ID.fullmatch(template_id):
+        raise ValidationError(
+            "invalid_template_id", "template id must be a lowercase underscore identifier"
+        )
+    version = _integer(value.get("version"), "template_version", 1, 9999)
+    return {"id": template_id, "version": version}
+
+
+def _validate_dispatch(value, role_count):
+    if value is None:
+        value = DEFAULT_SESSION["workflow"]["dispatch"]
+    require_mapping(value, "workflow dispatch")
+    maximum = _integer(
+        value.get("max_concurrent", 3), "max_concurrent", 1, MAX_PARTICIPANTS
+    )
+    if role_count:
+        maximum = min(maximum, role_count)
+    return {
+        "max_concurrent": maximum,
+        "source": _enum(
+            value.get("source", "conservative_default"),
+            "dispatch_source",
+            DISPATCH_SOURCES,
+        ),
+        "mode": _enum(value.get("mode", "waves"), "dispatch_mode", DISPATCH_MODES),
+    }
+
+
 def _validate_workflow(value, role_count, round_maximum):
     if value is None:
         value = {
             "strategy": "parallel_panel",
             "approval": "legacy",
+            "template": None,
+            "dispatch": DEFAULT_SESSION["workflow"]["dispatch"],
             "limits": {
                 "max_rounds": max(3, round_maximum),
                 "max_participants": max(3, role_count),
@@ -188,6 +226,8 @@ def _validate_workflow(value, role_count, round_maximum):
         "approval": _enum(
             value.get("approval", "required"), "workflow_approval", WORKFLOW_APPROVALS
         ),
+        "template": _validate_workflow_template(value.get("template")),
+        "dispatch": _validate_dispatch(value.get("dispatch"), role_count),
         "limits": {
             "max_rounds": max_rounds,
             "max_participants": max_participants,
@@ -362,7 +402,7 @@ def validate_session(value, participants=None, allow_legacy_workflow=False):
     preplan_clarification = (
         status == "waiting_user"
         and pending_decision is not None
-        and pending_decision["kind"] == "clarification"
+        and pending_decision["kind"] in {"clarification", "checkpoint"}
         and not value.get("roles")
     )
     active = status != "idle" and not preplan_clarification

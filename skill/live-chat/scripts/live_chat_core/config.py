@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path
 
 SERVICE_NAME = "live-chat"
-APP_VERSION = "0.1.0-beta.7"
+APP_VERSION = "0.1.0-beta.8"
 PROTOCOL_VERSION = 1
 SCHEMA_VERSION = 2
 EVENT_PROTOCOL_VERSION = 2
@@ -23,6 +23,10 @@ def skill_root():
 
 def chat_asset_path():
     return skill_root() / "assets" / "chat.html"
+
+
+def templates_asset_path():
+    return skill_root() / "assets" / "templates.json"
 
 
 def default_state_dir(environment=None, os_name=None, platform_name=None, home=None):

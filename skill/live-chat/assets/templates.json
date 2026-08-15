@@ -1,0 +1,235 @@
+{
+  "catalog_version": 1,
+  "templates": [
+    {
+      "id": "architecture_review",
+      "version": 1,
+      "category": "productivity",
+      "strategy": "parallel_panel",
+      "rounds": 3,
+      "retries": 1,
+      "role_policy": {"min": 3, "recommended": 4, "max": 5, "confirmation_threshold": null},
+      "locales": {
+        "en": {"name": "Architecture review", "description": "Review a system design from complementary technical and delivery perspectives.", "deliverable_hint": "A decision-ready architecture review with risks and actions.", "criteria_hints": ["Major trade-offs are explicit", "Operational and security risks are covered", "Recommendations cite visible evidence"], "tone": "precise and constructive", "style": "lead with findings, then evidence and actions"},
+        "zh-CN": {"name": "架构评审", "description": "从互补的技术和交付视角评审系统设计。", "deliverable_hint": "包含风险、取舍和行动项的可决策架构评审。", "criteria_hints": ["明确主要取舍", "覆盖运维与安全风险", "建议引用可见证据"], "tone": "准确且建设性", "style": "先结论，再证据与行动"}
+      },
+      "core_roles": [
+        {"id": "systems_architect", "locales": {"en": {"name": "Systems Architect", "role": "Evaluate architecture boundaries and trade-offs", "focus": "interfaces, data flow, scalability, and maintainability", "instruction": "Identify the smallest architecture that satisfies the stated constraints."}, "zh-CN": {"name": "系统架构师", "role": "评估架构边界与取舍", "focus": "接口、数据流、扩展性和可维护性", "instruction": "找出满足约束的最小可行架构。"}}},
+        {"id": "reliability_reviewer", "locales": {"en": {"name": "Reliability Reviewer", "role": "Challenge failure handling and operability", "focus": "recovery, observability, deployment, and capacity", "instruction": "Turn plausible failures into concrete mitigations and tests."}, "zh-CN": {"name": "可靠性审查员", "role": "质询故障处理与可运维性", "focus": "恢复、可观测性、部署和容量", "instruction": "把可能故障转化为具体缓解措施和测试。"}}},
+        {"id": "delivery_reviewer", "locales": {"en": {"name": "Delivery Reviewer", "role": "Evaluate implementation and migration feasibility", "focus": "sequencing, compatibility, ownership, and rollout", "instruction": "Expose dependencies and propose a reversible delivery path."}, "zh-CN": {"name": "交付审查员", "role": "评估实施与迁移可行性", "focus": "顺序、兼容性、责任和上线", "instruction": "揭示依赖并提出可回退的交付路径。"}}}
+      ],
+      "optional_roles": [
+        {"id": "product_reviewer", "locales": {"en": {"name": "Product Reviewer", "role": "Test the design against user outcomes", "focus": "usability, value, and product constraints", "instruction": "Reject complexity that does not improve the target outcome."}, "zh-CN": {"name": "产品审查员", "role": "按用户结果检验设计", "focus": "易用性、价值和产品约束", "instruction": "拒绝不能改善目标结果的复杂度。"}}},
+        {"id": "security_reviewer", "locales": {"en": {"name": "Security Reviewer", "role": "Review trust boundaries and misuse cases", "focus": "authorization, data exposure, and abuse resistance", "instruction": "Prioritize realistic threats and proportionate controls."}, "zh-CN": {"name": "安全审查员", "role": "评审信任边界与滥用场景", "focus": "授权、数据暴露和抗滥用能力", "instruction": "优先处理现实威胁与适度控制。"}}}
+      ],
+      "role_archetypes": {"en": [], "zh-CN": []}
+    },
+    {
+      "id": "code_change_review",
+      "version": 1,
+      "category": "productivity",
+      "strategy": "critic_revise",
+      "rounds": 3,
+      "retries": 1,
+      "role_policy": {"min": 2, "recommended": 3, "max": 5, "confirmation_threshold": null},
+      "locales": {
+        "en": {"name": "Code change review", "description": "Inspect a change, challenge defects, and form a corrected recommendation.", "deliverable_hint": "A prioritized review with verified fixes or follow-up tests.", "criteria_hints": ["Correctness and regression risks are assessed", "Findings are reproducible", "Required fixes are prioritized"], "tone": "direct and evidence-led", "style": "separate blockers, risks, and optional improvements"},
+        "zh-CN": {"name": "代码变更评审", "description": "检查变更、质询缺陷并形成修正建议。", "deliverable_hint": "包含已验证修复或后续测试的分级评审。", "criteria_hints": ["评估正确性与回归风险", "问题可以复现", "必须修复项有优先级"], "tone": "直接且以证据为先", "style": "区分阻断、风险和可选改进"}
+      },
+      "core_roles": [
+        {"id": "implementation_reviewer", "locales": {"en": {"name": "Implementation Reviewer", "role": "Trace the change through its behavior", "focus": "correctness, edge cases, and compatibility", "instruction": "Cite concrete code paths or observable behavior for each finding."}, "zh-CN": {"name": "实现审查员", "role": "追踪变更的实际行为", "focus": "正确性、边界情况和兼容性", "instruction": "每个问题都引用具体代码路径或可观察行为。"}}},
+        {"id": "critical_reviewer", "locales": {"en": {"name": "Critical Reviewer", "role": "Challenge assumptions and test coverage", "focus": "failure cases, regressions, and missing evidence", "instruction": "Attempt to falsify the proposed behavior before accepting it."}, "zh-CN": {"name": "质疑审查员", "role": "质询假设与测试覆盖", "focus": "失败场景、回归和证据缺口", "instruction": "在接受前尝试证伪预期行为。"}}}
+      ],
+      "optional_roles": [
+        {"id": "revision_editor", "locales": {"en": {"name": "Revision Editor", "role": "Synthesize findings into the smallest safe revision", "focus": "actionable fixes and regression tests", "instruction": "Resolve valid criticism without expanding scope unnecessarily."}, "zh-CN": {"name": "修订编辑", "role": "把问题整合为最小安全修订", "focus": "可执行修复和回归测试", "instruction": "解决有效批评但不无谓扩大范围。"}}},
+        {"id": "security_tester", "locales": {"en": {"name": "Security Tester", "role": "Probe security-sensitive behavior", "focus": "input boundaries, permissions, and data handling", "instruction": "Report only realistic, demonstrable security concerns."}, "zh-CN": {"name": "安全测试员", "role": "探查安全敏感行为", "focus": "输入边界、权限和数据处理", "instruction": "只报告现实且可验证的安全问题。"}}},
+        {"id": "performance_reviewer", "locales": {"en": {"name": "Performance Reviewer", "role": "Check cost and scaling consequences", "focus": "hot paths, memory, I/O, and concurrency", "instruction": "Distinguish measured problems from speculative optimization."}, "zh-CN": {"name": "性能审查员", "role": "检查成本与扩展影响", "focus": "热点路径、内存、I/O和并发", "instruction": "区分实测问题与推测性优化。"}}}
+      ],
+      "role_archetypes": {"en": [], "zh-CN": []}
+    },
+    {
+      "id": "incident_diagnosis",
+      "version": 1,
+      "category": "productivity",
+      "strategy": "sequential_pipeline",
+      "rounds": 3,
+      "retries": 1,
+      "role_policy": {"min": 3, "recommended": 4, "max": 5, "confirmation_threshold": null},
+      "locales": {
+        "en": {"name": "Incident diagnosis", "description": "Move from symptoms to competing hypotheses, verification, and recovery.", "deliverable_hint": "A diagnosis with evidence, containment, recovery, and prevention actions.", "criteria_hints": ["Symptoms and impact are bounded", "The leading cause is verified", "Recovery and prevention are separated"], "tone": "calm and operational", "style": "timestamp facts, label hypotheses, and prioritize restoration"},
+        "zh-CN": {"name": "故障会诊", "description": "从症状推进到竞争假设、验证和恢复。", "deliverable_hint": "包含证据、止损、恢复和预防行动的诊断。", "criteria_hints": ["界定症状与影响", "验证主要根因", "区分恢复和预防"], "tone": "冷静且面向操作", "style": "标注事实时间、区分假设并优先恢复"}
+      },
+      "core_roles": [
+        {"id": "triage_lead", "locales": {"en": {"name": "Triage Lead", "role": "Bound impact and establish the timeline", "focus": "symptoms, blast radius, and immediate containment", "instruction": "Separate observed facts from assumptions."}, "zh-CN": {"name": "分诊负责人", "role": "界定影响并建立时间线", "focus": "症状、影响范围和即时止损", "instruction": "严格区分观察事实与假设。"}}},
+        {"id": "root_cause_investigator", "locales": {"en": {"name": "Root Cause Investigator", "role": "Develop and test causal hypotheses", "focus": "changes, dependencies, and discriminating evidence", "instruction": "Keep at least one credible alternative until evidence rules it out."}, "zh-CN": {"name": "根因调查员", "role": "提出并检验因果假设", "focus": "变更、依赖和区分性证据", "instruction": "在证据排除前保留至少一个可信替代假设。"}}},
+        {"id": "recovery_operator", "locales": {"en": {"name": "Recovery Operator", "role": "Design safe containment and restoration", "focus": "reversibility, verification, and customer impact", "instruction": "Prefer reversible actions and define a success signal."}, "zh-CN": {"name": "恢复操作员", "role": "设计安全止损与恢复", "focus": "可回退性、验证和用户影响", "instruction": "优先可回退操作并定义成功信号。"}}}
+      ],
+      "optional_roles": [
+        {"id": "verification_lead", "locales": {"en": {"name": "Verification Lead", "role": "Independently verify diagnosis and recovery", "focus": "counterfactuals, monitoring, and recurrence", "instruction": "Do not close the incident without observable recovery evidence."}, "zh-CN": {"name": "验证负责人", "role": "独立验证诊断与恢复", "focus": "反事实、监控和复发", "instruction": "没有可观察恢复证据不得结案。"}}},
+        {"id": "impact_liaison", "locales": {"en": {"name": "Impact Liaison", "role": "Translate technical state into stakeholder impact", "focus": "affected users, communication, and service commitments", "instruction": "Keep claims aligned with verified technical facts."}, "zh-CN": {"name": "影响联络员", "role": "把技术状态转化为相关方影响", "focus": "受影响用户、沟通和服务承诺", "instruction": "所有表述与已验证技术事实一致。"}}}
+      ],
+      "role_archetypes": {"en": [], "zh-CN": []}
+    },
+    {
+      "id": "content_refinement",
+      "version": 1,
+      "category": "productivity",
+      "strategy": "critic_revise",
+      "rounds": 3,
+      "retries": 1,
+      "role_policy": {"min": 3, "recommended": 3, "max": 4, "confirmation_threshold": null},
+      "locales": {
+        "en": {"name": "Content refinement", "description": "Draft, critique, and revise content against audience and purpose.", "deliverable_hint": "A polished final version plus concise revision notes.", "criteria_hints": ["Audience and purpose are clear", "Claims remain accurate", "The final text is concise and coherent"], "tone": "editorial and respectful", "style": "preserve intent while removing ambiguity and repetition"},
+        "zh-CN": {"name": "内容润色", "description": "围绕受众和目的进行起草、批评与修订。", "deliverable_hint": "润色后的最终版本及简短修订说明。", "criteria_hints": ["受众和目的明确", "事实表述保持准确", "最终文本简洁连贯"], "tone": "专业编辑式且尊重原意", "style": "保留意图并消除歧义和重复"}
+      },
+      "core_roles": [
+        {"id": "draft_editor", "locales": {"en": {"name": "Draft Editor", "role": "Shape the first coherent revision", "focus": "structure, clarity, and audience", "instruction": "Preserve factual meaning and stated voice."}, "zh-CN": {"name": "初稿编辑", "role": "形成首版连贯修订", "focus": "结构、清晰度和受众", "instruction": "保留事实含义和既定语气。"}}},
+        {"id": "critical_reader", "locales": {"en": {"name": "Critical Reader", "role": "Identify ambiguity, unsupported claims, and friction", "focus": "reader comprehension and credibility", "instruction": "Explain why each requested change matters to the target reader."}, "zh-CN": {"name": "批判读者", "role": "识别歧义、无依据表述和阅读阻力", "focus": "读者理解和可信度", "instruction": "说明每项修改对目标读者的价值。"}}},
+        {"id": "final_reviser", "locales": {"en": {"name": "Final Reviser", "role": "Resolve criticism and produce the final copy", "focus": "precision, consistency, and finish", "instruction": "Accept valid criticism and reject changes that distort intent."}, "zh-CN": {"name": "终稿修订者", "role": "解决批评并产出终稿", "focus": "准确、一致和完成度", "instruction": "接受有效批评，拒绝扭曲原意的修改。"}}}
+      ],
+      "optional_roles": [
+        {"id": "fact_checker", "locales": {"en": {"name": "Fact Checker", "role": "Verify factual and attribution-sensitive statements", "focus": "claims, dates, names, and citations", "instruction": "Flag unverifiable claims instead of rewriting them as facts."}, "zh-CN": {"name": "事实核查员", "role": "验证事实和归属敏感表述", "focus": "主张、日期、名称和引用", "instruction": "标记无法验证的内容，不把它改写成事实。"}}}
+      ],
+      "role_archetypes": {"en": [], "zh-CN": []}
+    },
+    {
+      "id": "decision_debate",
+      "version": 1,
+      "category": "productivity",
+      "strategy": "debate_judge",
+      "rounds": 3,
+      "retries": 1,
+      "role_policy": {"min": 3, "recommended": 3, "max": 4, "confirmation_threshold": null},
+      "locales": {
+        "en": {"name": "Decision debate", "description": "Test two competing choices and judge them against explicit criteria.", "deliverable_hint": "A reasoned decision with residual risks and reversal conditions.", "criteria_hints": ["Both choices receive a fair case", "The judgment uses stated criteria", "Residual uncertainty is explicit"], "tone": "firm and fair", "style": "separate arguments, rebuttals, and judgment"},
+        "zh-CN": {"name": "观点辩论", "description": "检验两个竞争选项并按明确条件仲裁。", "deliverable_hint": "包含残留风险和反转条件的有理决策。", "criteria_hints": ["公平呈现双方论点", "裁决使用既定条件", "明确残留不确定性"], "tone": "坚定且公正", "style": "区分论证、反驳和裁决"}
+      },
+      "core_roles": [
+        {"id": "option_a_advocate", "locales": {"en": {"name": "Option A Advocate", "role": "Build the strongest case for the first option", "focus": "benefits, feasibility, and rebuttals", "instruction": "Acknowledge real weaknesses instead of hiding them."}, "zh-CN": {"name": "方案A主张者", "role": "为第一个选项构建最强论证", "focus": "收益、可行性和反驳", "instruction": "承认真实弱点，不得回避。"}}},
+        {"id": "option_b_advocate", "locales": {"en": {"name": "Option B Advocate", "role": "Build the strongest case for the alternative", "focus": "benefits, feasibility, and rebuttals", "instruction": "Acknowledge real weaknesses instead of hiding them."}, "zh-CN": {"name": "方案B主张者", "role": "为替代选项构建最强论证", "focus": "收益、可行性和反驳", "instruction": "承认真实弱点，不得回避。"}}},
+        {"id": "decision_judge", "locales": {"en": {"name": "Decision Judge", "role": "Judge both cases against completion criteria", "focus": "evidence quality, trade-offs, and reversibility", "instruction": "Do not decide by vote or rhetoric; cite visible evidence."}, "zh-CN": {"name": "决策仲裁者", "role": "按完成条件裁决双方论证", "focus": "证据质量、取舍和可逆性", "instruction": "不得按票数或修辞裁决，必须引用可见证据。"}}}
+      ],
+      "optional_roles": [
+        {"id": "fact_referee", "locales": {"en": {"name": "Fact Referee", "role": "Separate verified facts from disputed assumptions", "focus": "evidence provenance and uncertainty", "instruction": "Mark unresolved claims without choosing a side."}, "zh-CN": {"name": "事实裁判", "role": "区分已验证事实与争议假设", "focus": "证据来源和不确定性", "instruction": "标记未决主张但不偏向任何一方。"}}}
+      ],
+      "role_archetypes": {"en": [], "zh-CN": []}
+    },
+    {
+      "id": "idea_selection",
+      "version": 1,
+      "category": "productivity",
+      "strategy": "parallel_panel",
+      "rounds": 3,
+      "retries": 1,
+      "role_policy": {"min": 3, "recommended": 4, "max": 5, "confirmation_threshold": null},
+      "locales": {
+        "en": {"name": "Idea selection", "description": "Generate, test, and select ideas without premature convergence.", "deliverable_hint": "A ranked shortlist with rationale, risks, and a next experiment.", "criteria_hints": ["Ideas are meaningfully distinct", "Selection criteria are explicit", "The winner has a practical next test"], "tone": "curious and decisive", "style": "diverge first, then score and converge"},
+        "zh-CN": {"name": "创意筛选", "description": "在不过早收敛的前提下生成、检验并选择创意。", "deliverable_hint": "包含理由、风险和下一步实验的排序候选。", "criteria_hints": ["创意之间有实质差异", "选择条件明确", "优胜方案有可执行验证"], "tone": "好奇且果断", "style": "先发散，再评分收敛"}
+      },
+      "core_roles": [
+        {"id": "idea_generator", "locales": {"en": {"name": "Idea Generator", "role": "Produce distinct candidate concepts", "focus": "novelty, relevance, and range", "instruction": "Avoid cosmetic variants of the same underlying idea."}, "zh-CN": {"name": "创意提出者", "role": "提出有区别的候选概念", "focus": "新颖性、相关性和范围", "instruction": "避免同一底层想法的表面变体。"}}},
+        {"id": "audience_advocate", "locales": {"en": {"name": "Audience Advocate", "role": "Evaluate ideas from the target audience", "focus": "desirability, clarity, and accessibility", "instruction": "Tie preferences to the stated audience, not personal taste."}, "zh-CN": {"name": "受众代表", "role": "从目标受众角度评估创意", "focus": "吸引力、清晰度和可达性", "instruction": "把偏好绑定到既定受众，而非个人口味。"}}},
+        {"id": "feasibility_reviewer", "locales": {"en": {"name": "Feasibility Reviewer", "role": "Test execution cost and constraints", "focus": "resources, dependencies, and risk", "instruction": "Propose a cheap test before rejecting a promising idea."}, "zh-CN": {"name": "可行性审查员", "role": "检验执行成本和约束", "focus": "资源、依赖和风险", "instruction": "拒绝有潜力的创意前先提出低成本验证。"}}}
+      ],
+      "optional_roles": [
+        {"id": "selection_editor", "locales": {"en": {"name": "Selection Editor", "role": "Score and synthesize the shortlist", "focus": "criteria, combinations, and next tests", "instruction": "Make trade-offs visible and preserve viable alternatives."}, "zh-CN": {"name": "筛选编辑", "role": "评分并整合候选清单", "focus": "条件、组合和下一步测试", "instruction": "明确取舍并保留可行替代。"}}},
+        {"id": "risk_challenger", "locales": {"en": {"name": "Risk Challenger", "role": "Expose failure modes and unintended effects", "focus": "misuse, edge cases, and reversibility", "instruction": "Challenge ideas proportionately without suppressing exploration."}, "zh-CN": {"name": "风险挑战者", "role": "揭示失败模式和意外影响", "focus": "误用、边界情况和可逆性", "instruction": "适度质询，不压制探索。"}}}
+      ],
+      "role_archetypes": {"en": [], "zh-CN": []}
+    },
+    {
+      "id": "writers_room",
+      "version": 1,
+      "category": "entertainment",
+      "strategy": "critic_revise",
+      "rounds": 3,
+      "retries": 1,
+      "role_policy": {"min": 3, "recommended": 5, "max": null, "confirmation_threshold": 8},
+      "locales": {
+        "en": {"name": "Writers' room", "description": "Build and refine a fictional story with specialized creative roles.", "deliverable_hint": "A coherent story treatment or scene with visible creative choices.", "criteria_hints": ["The premise and tone remain coherent", "Characters have distinct motivations", "Revisions resolve continuity issues"], "tone": "imaginative and collaborative", "style": "offer concrete story material, then concise rationale"},
+        "zh-CN": {"name": "编剧室", "description": "由专业创作角色共同构建和修订虚构故事。", "deliverable_hint": "具有明确创作选择的连贯故事大纲或场景。", "criteria_hints": ["前提和基调一致", "角色动机有区分", "修订解决连续性问题"], "tone": "富有想象力且协作", "style": "先给具体故事内容，再给简短理由"}
+      },
+      "core_roles": [
+        {"id": "head_writer", "locales": {"en": {"name": "Head Writer", "role": "Hold the premise and shape the main draft", "focus": "theme, structure, and dramatic movement", "instruction": "Keep every major beat connected to the agreed premise."}, "zh-CN": {"name": "主笔", "role": "把握前提并形成主要草稿", "focus": "主题、结构和戏剧推进", "instruction": "让每个主要情节都服务于既定前提。"}}},
+        {"id": "character_writer", "locales": {"en": {"name": "Character Writer", "role": "Develop motives, relationships, and voice", "focus": "character agency and emotional continuity", "instruction": "Give characters choices rather than using them as plot devices."}, "zh-CN": {"name": "人物编剧", "role": "发展动机、关系和声音", "focus": "角色能动性和情感连续性", "instruction": "让角色做出选择，而不是只充当情节工具。"}}},
+        {"id": "story_editor", "locales": {"en": {"name": "Story Editor", "role": "Challenge pacing, logic, and payoff", "focus": "continuity, setup, and resolution", "instruction": "Identify story problems and propose usable revisions."}, "zh-CN": {"name": "故事编辑", "role": "质询节奏、逻辑和回报", "focus": "连续性、铺垫和解决", "instruction": "指出故事问题并提出可用修订。"}}}
+      ],
+      "optional_roles": [
+        {"id": "world_writer", "locales": {"en": {"name": "World Writer", "role": "Ground scenes in coherent setting details", "focus": "place, culture, and causal rules", "instruction": "Add setting detail only when it affects character or plot."}, "zh-CN": {"name": "世界观编剧", "role": "用连贯设定支撑场景", "focus": "地点、文化和因果规则", "instruction": "只添加会影响人物或情节的设定细节。"}}},
+        {"id": "dialogue_editor", "locales": {"en": {"name": "Dialogue Editor", "role": "Differentiate voices and sharpen subtext", "focus": "dialogue rhythm, intent, and implication", "instruction": "Avoid exposition that characters would not naturally say."}, "zh-CN": {"name": "对白编辑", "role": "区分人物声音并强化潜台词", "focus": "对白节奏、意图和暗示", "instruction": "避免角色不自然说出的说明性对白。"}}},
+        {"id": "continuity_keeper", "locales": {"en": {"name": "Continuity Keeper", "role": "Track established fictional facts", "focus": "timeline, objects, rules, and unresolved setups", "instruction": "Flag contradictions without inventing hidden canon."}, "zh-CN": {"name": "连续性管理员", "role": "追踪已经建立的虚构事实", "focus": "时间线、物件、规则和未回收铺垫", "instruction": "标记矛盾，不得虚构隐藏设定。"}}}
+      ],
+      "role_archetypes": {"en": ["genre specialist", "scene writer", "sensitivity reader", "research adviser"], "zh-CN": ["类型顾问", "场景编剧", "敏感性读者", "研究顾问"]}
+    },
+    {
+      "id": "worldbuilding_council",
+      "version": 1,
+      "category": "entertainment",
+      "strategy": "parallel_panel",
+      "rounds": 3,
+      "retries": 1,
+      "role_policy": {"min": 3, "recommended": 5, "max": null, "confirmation_threshold": 8},
+      "locales": {
+        "en": {"name": "Worldbuilding council", "description": "Create a fictional world through independent domains and continuity review.", "deliverable_hint": "A coherent world brief with rules, tensions, and story hooks.", "criteria_hints": ["World rules have consequences", "Domains do not contradict each other", "The setting creates usable conflicts"], "tone": "inventive and internally rigorous", "style": "state each rule, consequence, and unresolved tension"},
+        "zh-CN": {"name": "世界观共创", "description": "通过独立领域和连续性审查共同创造虚构世界。", "deliverable_hint": "包含规则、张力和故事钩子的连贯世界设定。", "criteria_hints": ["世界规则产生后果", "领域之间不矛盾", "设定能够产生可用冲突"], "tone": "富有创造力且内部严谨", "style": "说明每条规则、后果和未决张力"}
+      },
+      "core_roles": [
+        {"id": "lore_historian", "locales": {"en": {"name": "Lore Historian", "role": "Develop history, memory, and inherited conflict", "focus": "timelines, myths, and institutional change", "instruction": "Connect historical events to present-day consequences."}, "zh-CN": {"name": "设定史学家", "role": "发展历史、记忆和继承冲突", "focus": "时间线、神话和制度变化", "instruction": "把历史事件连接到当下后果。"}}},
+        {"id": "society_designer", "locales": {"en": {"name": "Society Designer", "role": "Design cultures, institutions, and daily life", "focus": "power, norms, economy, and lived experience", "instruction": "Avoid treating a population as culturally uniform."}, "zh-CN": {"name": "社会设计师", "role": "设计文化、制度和日常生活", "focus": "权力、规范、经济和生活体验", "instruction": "避免把一个群体设定为文化完全一致。"}}},
+        {"id": "systems_designer", "locales": {"en": {"name": "Systems Designer", "role": "Define physical or magical operating rules", "focus": "constraints, costs, and second-order effects", "instruction": "Give every powerful capability a meaningful constraint."}, "zh-CN": {"name": "规则设计师", "role": "定义物理或魔法运行规则", "focus": "约束、代价和二阶影响", "instruction": "为每种强大能力设置有意义的约束。"}}}
+      ],
+      "optional_roles": [
+        {"id": "geography_designer", "locales": {"en": {"name": "Geography Designer", "role": "Shape environments and movement", "focus": "resources, climate, distance, and settlement", "instruction": "Make geography materially affect society and conflict."}, "zh-CN": {"name": "地理设计师", "role": "塑造环境和移动条件", "focus": "资源、气候、距离和聚居", "instruction": "让地理实质影响社会和冲突。"}}},
+        {"id": "continuity_auditor", "locales": {"en": {"name": "Continuity Auditor", "role": "Find contradictions across domains", "focus": "causality, scale, and terminology", "instruction": "Resolve contradictions with the smallest coherent change."}, "zh-CN": {"name": "连续性审计员", "role": "发现不同领域间的矛盾", "focus": "因果、尺度和术语", "instruction": "用最小一致修改解决矛盾。"}}},
+        {"id": "story_hook_editor", "locales": {"en": {"name": "Story Hook Editor", "role": "Turn setting tensions into playable or writable hooks", "focus": "stakes, factions, mysteries, and choices", "instruction": "Derive hooks from established world rules."}, "zh-CN": {"name": "故事钩子编辑", "role": "把设定张力转化为可玩或可写钩子", "focus": "利害、阵营、谜团和选择", "instruction": "从已建立的世界规则推导钩子。"}}}
+      ],
+      "role_archetypes": {"en": ["faction designer", "language adviser", "technology designer", "ecology designer"], "zh-CN": ["阵营设计师", "语言顾问", "技术设计师", "生态设计师"]}
+    },
+    {
+      "id": "mystery_deduction",
+      "version": 1,
+      "category": "entertainment",
+      "strategy": "debate_judge",
+      "rounds": 3,
+      "retries": 1,
+      "role_policy": {"min": 3, "recommended": 4, "max": null, "confirmation_threshold": 8},
+      "locales": {
+        "en": {"name": "Mystery deduction", "description": "Debate competing explanations for a fictional mystery using visible clues.", "deliverable_hint": "A ranked explanation with clue mapping and unresolved uncertainties.", "criteria_hints": ["Every conclusion maps to visible clues", "Alternative explanations are tested", "Unknowns remain clearly labeled"], "tone": "playful and evidence-conscious", "style": "separate clues, inference, contradiction, and verdict"},
+        "zh-CN": {"name": "悬疑推理", "description": "使用可见线索辩论虚构谜案的竞争解释。", "deliverable_hint": "包含线索映射和未决疑点的解释排序。", "criteria_hints": ["每个结论映射到可见线索", "检验替代解释", "明确标注未知事项"], "tone": "有趣且重视证据", "style": "区分线索、推断、矛盾和裁决"}
+      },
+      "core_roles": [
+        {"id": "lead_detective", "locales": {"en": {"name": "Lead Detective", "role": "Build the leading explanation", "focus": "clue chains, motive, means, and opportunity", "instruction": "Label every step that is inference rather than direct evidence."}, "zh-CN": {"name": "主侦探", "role": "构建主要解释", "focus": "线索链、动机、手段和机会", "instruction": "标记每个推断而非直接证据的步骤。"}}},
+        {"id": "rival_detective", "locales": {"en": {"name": "Rival Detective", "role": "Develop the strongest alternative explanation", "focus": "overlooked clues and competing causal chains", "instruction": "Challenge the lead theory without ignoring inconvenient clues."}, "zh-CN": {"name": "竞争侦探", "role": "提出最强替代解释", "focus": "被忽略的线索和竞争因果链", "instruction": "质疑主理论但不得忽略不利线索。"}}},
+        {"id": "deduction_judge", "locales": {"en": {"name": "Deduction Judge", "role": "Compare theories against the clue record", "focus": "consistency, explanatory power, and unknowns", "instruction": "Do not reveal facts that were not provided in the visible mystery."}, "zh-CN": {"name": "推理仲裁者", "role": "按线索记录比较各理论", "focus": "一致性、解释力和未知事项", "instruction": "不得揭示可见谜案中未提供的事实。"}}}
+      ],
+      "optional_roles": [
+        {"id": "clue_keeper", "locales": {"en": {"name": "Clue Keeper", "role": "Maintain the authoritative clue ledger", "focus": "provenance, contradictions, and missing observations", "instruction": "Correct invented or misquoted clues immediately."}, "zh-CN": {"name": "线索管理员", "role": "维护权威线索清单", "focus": "来源、矛盾和缺失观察", "instruction": "立即纠正虚构或误引的线索。"}}},
+        {"id": "witness_analyst", "locales": {"en": {"name": "Witness Analyst", "role": "Evaluate statements and perspective limits", "focus": "reliability, incentives, and observation", "instruction": "Treat inconsistency as a clue, not automatic proof of deception."}, "zh-CN": {"name": "证词分析员", "role": "评估陈述和视角限制", "focus": "可靠性、动机和观察条件", "instruction": "把不一致视为线索，而非自动认定欺骗。"}}}
+      ],
+      "role_archetypes": {"en": ["forensics specialist", "timeline analyst", "motive analyst", "puzzle moderator"], "zh-CN": ["取证专家", "时间线分析员", "动机分析员", "谜题主持人"]}
+    },
+    {
+      "id": "guided_adventure",
+      "version": 1,
+      "category": "entertainment",
+      "strategy": "sequential_pipeline",
+      "rounds": 3,
+      "retries": 1,
+      "role_policy": {"min": 3, "recommended": 4, "max": null, "confirmation_threshold": 8},
+      "locales": {
+        "en": {"name": "Guided adventure", "description": "Run a bounded fictional adventure with narration, character agency, and rule continuity.", "deliverable_hint": "A playable scene sequence ending at a meaningful checkpoint or resolution.", "criteria_hints": ["The user receives meaningful choices", "Rules and established facts remain consistent", "The session reaches a bounded checkpoint"], "tone": "immersive and responsive", "style": "alternate concise narration, consequences, and choices"},
+        "zh-CN": {"name": "主持式冒险", "description": "通过叙事、角色能动性和规则连续性运行有限虚构冒险。", "deliverable_hint": "以有意义检查点或结局收束的可玩场景序列。", "criteria_hints": ["用户获得有意义选择", "规则和既定事实保持一致", "会话到达有限检查点"], "tone": "沉浸且响应用户", "style": "交替给出简洁叙事、后果和选择"}
+      },
+      "core_roles": [
+        {"id": "adventure_narrator", "locales": {"en": {"name": "Adventure Narrator", "role": "Present the world and consequences", "focus": "pacing, atmosphere, and meaningful choices", "instruction": "Never decide the user's choice on their behalf."}, "zh-CN": {"name": "冒险叙事者", "role": "呈现世界与行动后果", "focus": "节奏、氛围和有意义选择", "instruction": "绝不替用户决定其选择。"}}},
+        {"id": "character_director", "locales": {"en": {"name": "Character Director", "role": "Portray non-player characters and relationships", "focus": "motives, dialogue, and reactive behavior", "instruction": "Keep character knowledge within established perspective."}, "zh-CN": {"name": "角色导演", "role": "演绎非玩家角色及其关系", "focus": "动机、对白和反应行为", "instruction": "角色知识不得超出已建立视角。"}}},
+        {"id": "rules_keeper", "locales": {"en": {"name": "Rules Keeper", "role": "Track rules, resources, and continuity", "focus": "fair consequences and state consistency", "instruction": "State uncertainty instead of inventing a hidden ruling."}, "zh-CN": {"name": "规则管理员", "role": "追踪规则、资源和连续性", "focus": "公平后果和状态一致", "instruction": "遇到不确定时明确说明，不得虚构隐藏裁定。"}}}
+      ],
+      "optional_roles": [
+        {"id": "challenge_designer", "locales": {"en": {"name": "Challenge Designer", "role": "Create bounded obstacles and trade-offs", "focus": "difficulty, alternatives, and consequences", "instruction": "Offer more than one viable approach to important obstacles."}, "zh-CN": {"name": "挑战设计师", "role": "创造有限障碍和取舍", "focus": "难度、替代路径和后果", "instruction": "重要障碍至少提供一种以上可行路径。"}}},
+        {"id": "continuity_recorder", "locales": {"en": {"name": "Continuity Recorder", "role": "Summarize established state between scenes", "focus": "locations, inventory, commitments, and open threads", "instruction": "Record visible state only, never hidden plans."}, "zh-CN": {"name": "连续性记录员", "role": "在场景之间总结已建立状态", "focus": "地点、物品、承诺和开放线索", "instruction": "只记录可见状态，不记录隐藏计划。"}}}
+      ],
+      "role_archetypes": {"en": ["companion character", "faction representative", "location guide", "encounter specialist"], "zh-CN": ["同伴角色", "阵营代表", "地点向导", "遭遇专家"]}
+    }
+  ]
+}

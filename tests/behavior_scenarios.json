@@ -48,6 +48,24 @@
       "locale": "zh-CN",
       "request": "我拒绝这个会话方案。",
       "expects": ["reject_stops_dispatch", "persisted_decision"]
+    },
+    {
+      "id": "template-recommendation",
+      "locale": "en",
+      "request": "Review this architecture and recommend the best panel setup.",
+      "expects": ["template_recommendation", "template_override", "approval_before_dispatch"]
+    },
+    {
+      "id": "large-entertainment-cast",
+      "locale": "zh-CN",
+      "request": "用12个角色开一个世界观共创群聊。",
+      "expects": ["large_cast_checkpoint", "wave_dispatch", "exact_roster_limit"]
+    },
+    {
+      "id": "host-capacity-backpressure",
+      "locale": "en",
+      "request": "Continue the writers' room even if only two subagent slots are currently free.",
+      "expects": ["wave_dispatch", "capacity_not_retry", "resume_only_unfinished"]
     }
   ]
 }

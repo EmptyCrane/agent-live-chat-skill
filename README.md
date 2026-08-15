@@ -36,6 +36,7 @@ For experimental host installs, replace `codex` with `claude-code` or `github-co
 
 - **Real dialogue:** displays actual subagent replies in completion order; the host never fabricates participants or messages.
 - **Plan-first orchestration:** reuses known context, asks for only material gaps, and presents a bounded workflow for approval before dispatch.
+- **Adaptive templates:** recommends one of ten bilingual review, diagnosis, creative, and role-play templates while keeping every proposal editable.
 - **Controlled collaboration:** supports parallel panels, sequential pipelines, critic–revise loops, and debate–judge sessions with deterministic budgets.
 - **Visible execution state:** shows participants, typing, decisions, per-role status, requested and effective models, progress, evidence, and terminal results.
 - **Persistent conversations:** creates stable-ID sessions that can be selected, archived, restored, exported, and replayed without modifying the source.
@@ -77,6 +78,14 @@ Where supported, `$live-chat` explicitly activates the Skill. It extracts the go
 
 Model identifiers are host capabilities, not personas. If an exact requested model is unavailable, the default policy pauses for confirmation. The UI shows requested and effective models only when the host can provide that information.
 
+### Built-in templates
+
+The development version includes six productivity templates—architecture review, code change review, incident diagnosis, content refinement, decision debate, and idea selection—and four entertainment templates for a writers' room, worldbuilding, fictional mystery deduction, and guided adventure.
+
+Productivity templates define a minimum, recommended roster, and template maximum. Entertainment templates define only a minimum and recommendation: larger casts run in waves according to host concurrency, with an explicit checkpoint above eight roles and a technical ceiling of 100 participants. Applying a template only persists a proposal and approval decision; it never dispatches agents.
+
+The host recommends one fitting template with a short reason. You can select another template, edit its roles and limits, or use a blank custom plan.
+
 ### Interface language
 
 The browser UI includes complete English and Simplified Chinese interface text. Add `?lang=en` or `?lang=zh-CN` to the page URL to choose explicitly; otherwise a Chinese browser locale selects Chinese and other locales select English. Scene titles, participant names, and chat messages are user data and are never translated automatically.
@@ -109,6 +118,9 @@ python skill/live-chat/scripts/live_chat.py --json doctor --host codex
 python skill/live-chat/scripts/live_chat.py --json start
 python skill/live-chat/scripts/live_chat.py sessions create --title "Architecture review"
 python skill/live-chat/scripts/live_chat.py sessions list --archived
+python skill/live-chat/scripts/live_chat.py --json templates list --lang en
+python skill/live-chat/scripts/live_chat.py --json templates show architecture_review --lang en
+python skill/live-chat/scripts/live_chat.py --json templates apply architecture_review --lang en --stdin
 python skill/live-chat/scripts/live_chat.py decision request --file decision.json
 python skill/live-chat/scripts/live_chat.py decision resolve DECISION_ID approve --option-id approve
 python skill/live-chat/scripts/live_chat.py export SESSION_ID --format events --file history.json
@@ -141,7 +153,7 @@ See [SECURITY.md](SECURITY.md) for the threat boundary and private reporting pro
 ```bash
 python -m unittest discover -s tests -p "test_*.py" -v
 python tools/eval_skill.py --json
-python tools/package_release.py --version 0.1.0-beta.7
+python tools/package_release.py --version 0.1.0-beta.8
 ```
 
 Visual checks use the pinned Playwright development dependency:
@@ -155,7 +167,7 @@ Development dependencies, tests, state, logs, and documentation are excluded fro
 
 ## Beta status and limits
 
-- The pinned installer remains the audited `v0.1.0-beta.6` release. The current development branch targets Beta 7 with session Schema 2, event protocol 2, plan approval, persisted decisions, bounded workflow strategies, run traces, GET-only SSE, message filtering, and result comparison while continuing to read v1 data.
+- The pinned installer remains the audited `v0.1.0-beta.6` release. The current development branch targets Beta 8 with the Beta 7 session/event foundation plus ten bundled templates, adaptive role policies, explicit large-cast checkpoints, and wave-based dispatch metadata while continuing to read v1 data.
 - The bundled behavior evaluation is an offline policy-contract check; real host/model end-to-end acceptance remains a separate release gate.
 - Claude Code and GitHub Copilot are format-checked but not yet host-smoke-tested.
 - GitHub-hosted macOS runners currently skip the detached localhost lifecycle affected by [runner-images #14409](https://github.com/actions/runner-images/issues/14409); all other macOS coverage remains enabled, and Ubuntu validates the POSIX lifecycle.
